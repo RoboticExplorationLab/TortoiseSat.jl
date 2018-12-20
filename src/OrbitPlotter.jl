@@ -22,16 +22,6 @@ f_J2=[J2*r[1]/norm(r)^7*(6*r[3]-1.5*(r[1]^2+r[2]^2))
 #acceleration
 a=(f_grav+f_J2)/mass; #km/s^2
 
-#magnetic field
-dt=.01; #s
-r2=r-v*dt;
-r3=r-2*v*dt;
-r4=r-3*v*dt;
-(lat1,long1)=cart_latlong(r);
-(lat2,long2)=cart_latlong(r2);
-(lat3,long3)=cart_latlong(r3);
-(lat4,long4)=cart_latlong(r4);
-
 #calculate rotation matrix from quaternion
 q_N_B_inv=[-q_N_B[1:3]; q_N_B[4]];
 

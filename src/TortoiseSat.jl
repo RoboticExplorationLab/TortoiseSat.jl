@@ -87,6 +87,7 @@ tspan=(t0,tf);
 prob=DiffEqBase.ODEProblem(OrbitPlotter,u0,tspan);
 sol=DiffEqBase.solve(prob,dt=1.0,Euler())
 pos=sol[1:3,:]
+vel=sol[4:6,:]
 # plot(sol.t,pos[1,:])
 # plot!(sol.t,pos[2,:])
 # plot!(sol.t,pos[3,:])
@@ -104,19 +105,19 @@ dt=(size(B_N,1)-1)/tf;
 #initial
 omega_int=[.2;0;0];
 q_N_B=[0;0;0;0];
-x0=[omega_int;q_N_B;1];
+x0=[vel[1:3,1];pos[1:3,1];omega_int;q_N_B];
 
 #final
 q_N_B_final=[0;0;0;0]
 omega_final=[0;0;0];
-xf=[omega_final;q_N_B_final;size(B_N,1)]; #km or km/s
+xf=[vel[1:3,end];pos[1:3,end];omega_final;q_N_B_final]; #km or km/s
 
 #bounds
 u_bnd=1;
 x_bnd=1;
 
 #create model
-n=8;
+n=13;
 m=3;
 model=Model(DerivFunction,n,m);
 
@@ -138,13 +139,13 @@ solver.opts.verbose=true;
 solver.opts.use_static = false
 solver.opts.min_dt = dt
 solver.opts.max_dt = dt
-# solver.opts.iterations=5
-# solver.opts.iterations_outerloop=5
-# solver.opts.cost_intermediate_tolerance=1.0e-2;
-# solver.opts.cost_tolerance=1.0e-2;
-# solver.opts.gradient_intermediate_tolerance=1.0e-2
-# solver.opts.gradient_tolerance=1.0e-2
-# solver.opts.live_plotting=true
+solver.opts.iterations=5
+solver.opts.iterations_outerloop=5
+solver.opts.cost_intermediate_tolerance=1.0e-2;
+solver.opts.cost_tolerance=1.0e-2;
+solver.opts.gradient_intermediate_tolerance=1.0e-2
+solver.opts.gradient_tolerance=1.0e-2
+solver.opts.live_plotting=false
 
 
 U = zeros(m,solver.N);
