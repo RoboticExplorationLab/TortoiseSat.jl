@@ -73,13 +73,13 @@ dt=(size(B_N,1)-1)/tf;
 
 #trajectory optimization section
 #initial
-omega_int=[.2;0;0]
+omega_int=[0.001;0;0]
 q_N_B=[0.;0;1;0]
 x0=[vel[1:3,1]/R_E;pos[1:3,1]/R_E;omega_int;q_N_B];
 
 #final
-q_N_B_final=[0.;0;1;0]
-omega_final=[0;0;0];
+q_N_B_final=[0.;1;0;0]
+omega_final=[0.;0;0]
 xf=[vel[1:3,end]/R_E;pos[1:3,end]/R_E;omega_final;q_N_B_final]; #km or km/s
 
 #create model
@@ -88,12 +88,11 @@ m=3;
 model=Model(DerivFunction,n,m);
 
 #LQR
-Q = Array((1.e-5)*Diagonal(I,n));
+Q=zeros(n,n);
+Q[1:9,1:9] = Array((1.e-9)*Diagonal(I,9));
+Q[10:13,10:13] = Array((1.e-5)*Diagonal(I,4));
 Qf = Array((1.)*Diagonal(I,n));
-R = Array((1.)*Diagonal(I,m));
-
-#determine number of nodes
-N=size(B_N,1);
+R = Array((1.e-5)*Diagonal(I,m));
 
 #bounds
 u_bnd=.0001
@@ -101,7 +100,7 @@ x_bnd=100
 
 obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, tf, x0, xf);
 obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
-solver = TrajectoryOptimization.Solver(model,obj_con,N=50);
+solver = TrajectoryOptimization.Solver(model,obj_con,N=100);
 solver.opts.verbose=true;
 # solver.opts.use_static = false
 # solver.opts.min_dt = dt
@@ -111,8 +110,8 @@ solver.opts.verbose=true;
 # solver.opts.gradient_intermediate_tolerance=1.0e-5
 # solver.opts.gradient_tolerance=1.0e-5
 solver.opts.live_plotting=false
-solver.opts.iterations_outerloop=20
-solver.opts.omega_quat=true
+solver.opts.iterations_outerloop=5
+solver.opts.sat_att=true
 
 
 U = zeros(m,solver.N);

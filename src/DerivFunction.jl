@@ -21,8 +21,8 @@ skew_omega=[0 omega[3] -omega[2];
 Q_N_B_dot=Q_N_B*-skew_omega;
 
 #find quaternion derivative
-q_N_B_dot=.5*q_N_B.*[omega;0];
-q_N_B_dot_inv=[-q_N_B_dot[1:3];q_N_B_dot[4]];
+q_N_B_dot_temp=[0*Array(Diagonal(I,3)*1.)+skew_omega omega;-omega' 0];
+q_N_B_dot=q_N_B_dot_temp*q_N_B;
 
 #magnetic field
 B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
