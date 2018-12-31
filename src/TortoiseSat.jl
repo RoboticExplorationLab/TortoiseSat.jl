@@ -3,6 +3,7 @@
 using Pkg;
 using LinearAlgebra;
 using Plots;
+Pkg.add("Formatting")
 Pkg.add("TrajectoryOptimization");
 using TrajectoryOptimization;
 Pkg.add("DifferentialEquations");
@@ -46,41 +47,9 @@ t0=0.0;
 tf=60.0*60*1.6; #seconds
 dt=0.1; #seconds
 
-#initialize vectors
-r_N_1=[0 0 -1];
-r_N_2=[0 1 0];
-r_B_1=[0 0 -1];
-r_B_2=[1 0 0];
-
-#q-method
-num_vect=2;
-weights=ones(1,2);
-normal_vects=[r_N_1;r_N_2]';
-body_vects=[r_B_1;r_B_2]';
-B = zeros(3,3);
-z=zeros(3,1);
-for i in 1:num_vect
-    global B
-    global z
-    B=B+weights[i]*body_vects[:,i]*normal_vects[:,i]';
-    z=z+weights[i]*cross(body_vects[:,i],normal_vects[:,i]);
-end
-K=[B+B'-tr(B)*I z;
-     z' tr(B)];
-
-eig_vals=eigvals(K);
-eig_vects=eigvecs(K);
-(eig__val_0,location)=findmax(eig_vals);
-eig_vect_0=eig_vects[:,location];
-q_N_B=eig_vect_0/norm(eig_vect_0);
-
 #initial
 pos_0=kep_cart(A,t0,GM); #km and km/s
-att_int=[.2; .5; 0]; #rads
-omega_int=[.02; 0; 0]; #rads/s
-#find initial magnetic field
-B0=-8E15*(1E-3)^3;
-u0=[pos_0[1,:];pos_0[2,:];att_int;omega_int;q_N_B]; #km or km/s
+u0=[pos_0[1,:];pos_0[2,:]]; #km or km/s
 
 #find magnetic field along 1 orbit
 tspan=(t0,tf);
@@ -92,6 +61,7 @@ vel=sol[4:6,:]
 # plot!(sol.t,pos[2,:])
 # plot!(sol.t,pos[3,:])
 
+B0=-8E15*(1E-3)^3;
 B_N=zeros(size(pos,2),3)
 for i=1:size(pos,2)
     B_N[i,:]=[3*pos[1,i]*pos[3,i]*(B0/norm(pos[:,i])^5);3*pos[2,i]*pos[3,i]*(B0/norm(pos[:,i])^5);(3*pos[3,i]^2-norm(pos[:,i])^2)*(B0/norm(pos[:,i])^5)];
@@ -103,18 +73,14 @@ dt=(size(B_N,1)-1)/tf;
 
 #trajectory optimization section
 #initial
-omega_int=[.2;0;0];
-q_N_B=[0;0;0;0];
-x0=[vel[1:3,1];pos[1:3,1];omega_int;q_N_B];
+omega_int=[.2;0;0]
+q_N_B=[0.;0;1;0]
+x0=[vel[1:3,1]/R_E;pos[1:3,1]/R_E;omega_int;q_N_B];
 
 #final
-q_N_B_final=[0;0;0;0]
+q_N_B_final=[0.;0;1;0]
 omega_final=[0;0;0];
-xf=[vel[1:3,end];pos[1:3,end];omega_final;q_N_B_final]; #km or km/s
-
-#bounds
-u_bnd=1;
-x_bnd=1;
+xf=[vel[1:3,end]/R_E;pos[1:3,end]/R_E;omega_final;q_N_B_final]; #km or km/s
 
 #create model
 n=13;
@@ -122,30 +88,31 @@ m=3;
 model=Model(DerivFunction,n,m);
 
 #LQR
-Q = Array((1.e-9)*Diagonal(I,n));
-Qf = Array(1.e-9*Diagonal(I,n));
-R = Array((1.e-9)*Diagonal(I,m));
-
-#constant stage cost
-c=1.0
+Q = Array((1.e-5)*Diagonal(I,n));
+Qf = Array((1.)*Diagonal(I,n));
+R = Array((1.)*Diagonal(I,m));
 
 #determine number of nodes
 N=size(B_N,1);
 
-obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, c, tf, x0, xf);
-obj_con = ConstrainedObjective(obj,u_min=-u_bnd, u_max=u_bnd, x_min=-x_bnd, x_max=x_bnd);
-solver = TrajectoryOptimization.Solver(model,obj,N=N);
+#bounds
+u_bnd=.0001
+x_bnd=100
+
+obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, tf, x0, xf);
+obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
+solver = TrajectoryOptimization.Solver(model,obj_con,N=50);
 solver.opts.verbose=true;
-solver.opts.use_static = false
-solver.opts.min_dt = dt
-solver.opts.max_dt = dt
-solver.opts.iterations=5
-solver.opts.iterations_outerloop=5
-solver.opts.cost_intermediate_tolerance=1.0e-2;
-solver.opts.cost_tolerance=1.0e-2;
-solver.opts.gradient_intermediate_tolerance=1.0e-2
-solver.opts.gradient_tolerance=1.0e-2
+# solver.opts.use_static = false
+# solver.opts.min_dt = dt
+# solver.opts.max_dt = dt
+# solver.opts.cost_intermediate_tolerance=1.0e-3
+# solver.opts.cost_tolerance=1.0e-4
+# solver.opts.gradient_intermediate_tolerance=1.0e-5
+# solver.opts.gradient_tolerance=1.0e-5
 solver.opts.live_plotting=false
+solver.opts.iterations_outerloop=20
+solver.opts.omega_quat=true
 
 
 U = zeros(m,solver.N);
@@ -153,8 +120,30 @@ U = zeros(m,solver.N);
 
 results, stats = TrajectoryOptimization.solve(solver,U)
 X = TrajectoryOptimization.to_array(results.X)
-plot(X[1,:])
-plot!(X[2,:])
-plot!(X[3,:])
+U = TrajectoryOptimization.to_array(results.U)
 
-plot(X[8,:])
+#plot input
+plot(U[1,:])
+plot!(U[2,:])
+plot!(U[3,:])
+
+#plot velocity
+plot(X[1,:]*R_E)
+plot!(X[2,:]*R_E)
+plot!(X[3,:]*R_E)
+
+#plot position
+plot(X[4,:]*R_E)
+plot!(X[5,:]*R_E)
+plot!(X[6,:]*R_E)
+
+#plot omega
+plot(X[7,:])
+plot!(X[8,:])
+plot!(X[9,:])
+
+#plot quaternion
+plot(X[10,:])
+plot!(X[11,:])
+plot!(X[12,:])
+plot!(X[13,:])

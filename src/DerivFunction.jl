@@ -1,7 +1,9 @@
 function DerivFunction(dx,x,u)
 #Summary of this function goes here
-vel=x[1:3];
-pos=x[4:6];
+R_E = 6371.0; #earth radius (km)
+
+vel=x[1:3]*R_E;
+pos=x[4:6]*R_E;
 omega=x[7:9];
 q_N_B=x[10:13];
 
@@ -32,12 +34,11 @@ B_B1=Q_N_B*B_N;
 #   m_c[i]=-m_max*sign(temp[i]);
 #end
 
-# tau_c=cross(u[1:3],B_B1); #N-m
-tau_c=u[1:3]
+tau_c=cross(u[1:3],B_B1); #N-m
+# tau_c=u[1:3]
 
 #rotation
-M=tau_c;
-omega_dot=inv(J)*(M-cross(omega,J*omega)); #rad/s^2
+omega_dot=inv(J)*(tau_c-cross(omega,J*omega)); #rad/s^2
 
 #force balance
 #gravity
@@ -56,7 +57,7 @@ f_J2=[J2*pos[1]/norm(pos)^7*(6*pos[3]-1.5*(pos[1]^2+pos[2]^2))
 a=(f_grav+f_J2)/mass; #km/s^2
 
 #redo concatination
-dx[1:13] = [a;vel;omega_dot;q_N_B_dot];
+dx[1:13] = [a/R_E;vel/R_E;omega_dot;q_N_B_dot];
 #print(omega);
 
 
