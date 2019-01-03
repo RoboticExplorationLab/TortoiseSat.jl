@@ -5,28 +5,31 @@ R_E = 6371.0; #earth radius (km)
 vel=x[1:3]*R_E;
 pos=x[4:6]*R_E;
 omega=x[7:9];
-q_N_B=x[10:13];
+q=x[10:13]./norm(x[10:13]);
 
 #calculate rotation matrix from quaternion
-q_N_B_inv=[-q_N_B[1:3]; q_N_B[4]];
-
-v_hat=[0 q_N_B[3] -q_N_B[2];
-   -q_N_B[3] 0 q_N_B[1];
-   q_N_B[2] -q_N_B[1] 0];
-
-Q_N_B=I+2*(v_hat)*(q_N_B[4]*I+v_hat);
+# q_inv=[-q[1:3]; q[4]];
+#
+# v_hat=[0 q[3] -q[2];
+#    -q[3] 0 q[1];
+#    q[2] -q[1] 0];
+#
+# q=I+2*(v_hat)*(q[4]*I+v_hat);
 skew_omega=[0 omega[3] -omega[2];
    -omega[3] 0 omega[1];
    omega[2] -omega[1] 0];
-Q_N_B_dot=Q_N_B*-skew_omega;
+# q_dot=q*-skew_omega;
 
 #find quaternion derivative
-q_N_B_dot_temp=[0*Array(Diagonal(I,3)*1.)+skew_omega omega;-omega' 0];
-q_N_B_dot=q_N_B_dot_temp*q_N_B;
+# q_dot_temp=[0*Array(Diagonal(I,3)*1.)+skew_omega omega;-omega' 0];
+# q_dot=q_dot_temp*q;
+q_dot=0.5*qmult(q,[omega;0])
 
 #magnetic field
 B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
-B_B1=Q_N_B*B_N;
+q_t=[-q[1:3];q[4]]
+temp=qmult(qmult(q_t,[B_N;0]),q)
+B_B=temp[1:3];
 
 #m_c=zeros(3);
 #for i=1:3
@@ -34,7 +37,7 @@ B_B1=Q_N_B*B_N;
 #   m_c[i]=-m_max*sign(temp[i]);
 #end
 
-tau_c=cross(u[1:3],B_B1); #N-m
+tau_c=cross(u[1:3],B_B); #N-m
 # tau_c=u[1:3]
 
 #rotation
@@ -57,7 +60,7 @@ f_J2=[J2*pos[1]/norm(pos)^7*(6*pos[3]-1.5*(pos[1]^2+pos[2]^2))
 a=(f_grav+f_J2)/mass; #km/s^2
 
 #redo concatination
-dx[1:13] = [a/R_E;vel/R_E;omega_dot;q_N_B_dot];
+dx[1:13] = [a/R_E;vel/R_E;omega_dot;q_dot];
 #print(omega);
 
 

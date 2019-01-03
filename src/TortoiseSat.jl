@@ -16,6 +16,7 @@ include("cart_latlong.jl")
 include("NED_cart.jl")
 include("DerivFunction.jl")
 include("OrbitPlotter.jl")
+include("qmult.jl")
 
 #earth parameters
 GM = 3.986004418E14*(1/1000)^3; #earth graviational constant (km^3 s^-2)""
@@ -23,9 +24,9 @@ R_E = 6371.0; #earth radius (km)
 
 #satellite parameters
 mass=4.0; #kg
-J=[1E-4 0 0;
-    0 1E-4 0;
-    0 0 1E-4];
+J=[1E-3 0 0;
+    0 1E-3 0;
+    0 0 1E-3];
 
 #control parameters
 m_max=1E-4;
@@ -51,7 +52,7 @@ dt=0.1; #seconds
 pos_0=kep_cart(A,t0,GM); #km and km/s
 u0=[pos_0[1,:];pos_0[2,:]]; #km or km/s
 
-#find magnetic field along 1 orbit
+# find magnetic field along 1 orbit
 tspan=(t0,tf);
 prob=DiffEqBase.ODEProblem(OrbitPlotter,u0,tspan);
 sol=DiffEqBase.solve(prob,dt=1.0,Euler())
@@ -66,14 +67,14 @@ B_N=zeros(size(pos,2),3)
 for i=1:size(pos,2)
     B_N[i,:]=[3*pos[1,i]*pos[3,i]*(B0/norm(pos[:,i])^5);3*pos[2,i]*pos[3,i]*(B0/norm(pos[:,i])^5);(3*pos[3,i]^2-norm(pos[:,i])^2)*(B0/norm(pos[:,i])^5)];
 end
-plot(sol.t,B_N[:,1])
-plot!(sol.t,B_N[:,2])
-plot!(sol.t,B_N[:,3])
-dt=(size(B_N,1)-1)/tf;
+# plot(sol.t,B_N[:,1])
+# plot!(sol.t,B_N[:,2])
+# plot!(sol.t,B_N[:,3])
+# dt=(size(B_N,1)-1)/tf;
 
 #trajectory optimization section
 #initial
-omega_int=[0.001;0;0]
+omega_int=[0.02;0;0]
 q_N_B=[0.;0;1;0]
 x0=[vel[1:3,1]/R_E;pos[1:3,1]/R_E;omega_int;q_N_B];
 
@@ -89,14 +90,14 @@ model=Model(DerivFunction,n,m);
 
 #LQR
 Q=zeros(n,n);
-Q[1:9,1:9] = Array((1.e-9)*Diagonal(I,9));
-Q[10:13,10:13] = Array((1.e-5)*Diagonal(I,4));
-Qf = Array((1.)*Diagonal(I,n));
-R = Array((1.e-5)*Diagonal(I,m));
+Q[1:9,1:9] = Array((1.e-7)*Diagonal(I,9));
+Q[10:13,10:13] = Array((1.e-2)*Diagonal(I,4));
+Qf = Array((1.e0)*Diagonal(I,n));
+R = Array((1.e1)*Diagonal(I,m));
 
 #bounds
-u_bnd=.0001
-x_bnd=100
+u_bnd=.001
+x_bnd=10
 
 obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, tf, x0, xf);
 obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
@@ -105,13 +106,11 @@ solver.opts.verbose=true;
 # solver.opts.use_static = false
 # solver.opts.min_dt = dt
 # solver.opts.max_dt = dt
-# solver.opts.cost_intermediate_tolerance=1.0e-3
-# solver.opts.cost_tolerance=1.0e-4
-# solver.opts.gradient_intermediate_tolerance=1.0e-5
-# solver.opts.gradient_tolerance=1.0e-5
 solver.opts.live_plotting=false
 solver.opts.iterations_outerloop=5
 solver.opts.sat_att=true
+solver.opts.λ_min=-1.0e8
+solver.opts.γ=100
 
 
 U = zeros(m,solver.N);
