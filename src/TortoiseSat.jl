@@ -3,7 +3,8 @@
 using Pkg;
 using LinearAlgebra;
 using Plots;
-Pkg.add("TrajectoryOptimization");
+Pkg.add("Formatting")
+Pkg.develop(PackageSpec(url="https://github.com/GathererA/TrajectoryOptimization.jl"))
 using TrajectoryOptimization;
 Pkg.add("DifferentialEquations");
 using DifferentialEquations;
@@ -22,9 +23,10 @@ R_E = 6371.0; #earth radius (km)
 
 #satellite parameters
 mass=4.0; #kg
-J=[1E-4 0 0;
-    0 1E-4 0;
-    0 0 1E-4];
+J=[1E-3 0 0;
+    0 1E-3 0;
+    0 0 1E-3];
+J_inv=inv(J)
 
 #control parameters
 m_max=1E-4;
@@ -46,43 +48,11 @@ t0=0.0;
 tf=60.0*60*1.6; #seconds
 dt=0.1; #seconds
 
-#initialize vectors
-r_N_1=[0 0 -1];
-r_N_2=[0 1 0];
-r_B_1=[0 0 -1];
-r_B_2=[1 0 0];
-
-#q-method
-num_vect=2;
-weights=ones(1,2);
-normal_vects=[r_N_1;r_N_2]';
-body_vects=[r_B_1;r_B_2]';
-B = zeros(3,3);
-z=zeros(3,1);
-for i in 1:num_vect
-    global B
-    global z
-    B=B+weights[i]*body_vects[:,i]*normal_vects[:,i]';
-    z=z+weights[i]*cross(body_vects[:,i],normal_vects[:,i]);
-end
-K=[B+B'-tr(B)*I z;
-     z' tr(B)];
-
-eig_vals=eigvals(K);
-eig_vects=eigvecs(K);
-(eig__val_0,location)=findmax(eig_vals);
-eig_vect_0=eig_vects[:,location];
-q_N_B=eig_vect_0/norm(eig_vect_0);
-
 #initial
 pos_0=kep_cart(A,t0,GM); #km and km/s
-att_int=[.2; .5; 0]; #rads
-omega_int=[.02; 0; 0]; #rads/s
-#find initial magnetic field
-B0=-8E15*(1E-3)^3;
-u0=[pos_0[1,:];pos_0[2,:];att_int;omega_int;q_N_B]; #km or km/s
+u0=[pos_0[1,:];pos_0[2,:]]; #km or km/s
 
-#find magnetic field along 1 orbit
+# find magnetic field along 1 orbit
 tspan=(t0,tf);
 prob=DiffEqBase.ODEProblem(OrbitPlotter,u0,tspan);
 sol=DiffEqBase.solve(prob,dt=1.0,Euler())
@@ -92,29 +62,26 @@ vel=sol[4:6,:]
 # plot!(sol.t,pos[2,:])
 # plot!(sol.t,pos[3,:])
 
+B0=-8E15*(1E-3)^3;
 B_N=zeros(size(pos,2),3)
 for i=1:size(pos,2)
     B_N[i,:]=[3*pos[1,i]*pos[3,i]*(B0/norm(pos[:,i])^5);3*pos[2,i]*pos[3,i]*(B0/norm(pos[:,i])^5);(3*pos[3,i]^2-norm(pos[:,i])^2)*(B0/norm(pos[:,i])^5)];
 end
-plot(sol.t,B_N[:,1])
-plot!(sol.t,B_N[:,2])
-plot!(sol.t,B_N[:,3])
-dt=(size(B_N,1)-1)/tf;
+# plot(sol.t,B_N[:,1])
+# plot!(sol.t,B_N[:,2])
+# plot!(sol.t,B_N[:,3])
+# dt=(size(B_N,1)-1)/tf;
 
 #trajectory optimization section
 #initial
-omega_int=[.2;0;0];
-q_N_B=[0;0;0;0];
-x0=[vel[1:3,1];pos[1:3,1];omega_int;q_N_B];
+omega_int=[0.002;0;0]
+q_N_B=[0.;0;1;0]
+x0=[vel[1:3,1]/R_E;pos[1:3,1]/R_E;omega_int;q_N_B];
 
 #final
-q_N_B_final=[0;0;0;0]
-omega_final=[0;0;0];
-xf=[vel[1:3,end];pos[1:3,end];omega_final;q_N_B_final]; #km or km/s
-
-#bounds
-u_bnd=1;
-x_bnd=1;
+q_N_B_final=[0.;1;0;0]
+omega_final=[0.;0;0]
+xf=[vel[1:3,end]/R_E;pos[1:3,end]/R_E;omega_final;q_N_B_final]; #km or km/s
 
 #create model
 n=13;
@@ -122,39 +89,68 @@ m=3;
 model=Model(DerivFunction,n,m);
 
 #LQR
-Q = Array((1.e-9)*Diagonal(I,n));
-Qf = Array(1.e-9*Diagonal(I,n));
-R = Array((1.e-9)*Diagonal(I,m));
+Q=zeros(n,n);
+Qf=zeros(n,n);
+Q[1:6,1:6] = Array((1.e-7)*Diagonal(I,6));
+Q[7:9,7:9] = Array((1.e-1)*Diagonal(I,3));
+Qf[1:6,1:6] = Array((1.e-7)*Diagonal(I,6));
+Qf[7:9,7:9] = Array((1.e-3)*Diagonal(I,3));
+α = 1.e2;
+Q[10:13,10:13] = Array(α*Diagonal(I,4));
+Qf[10:13,10:13] = Array(α*Diagonal(I,4))*1.e2;
 
-#constant stage cost
-c=1.0
+R = Array((1.e6)*Diagonal(I,m));
 
-#determine number of nodes
-N=size(B_N,1);
+#bounds
+u_bnd=.0006
+x_bnd=10
 
-obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, c, tf, x0, xf);
-obj_con = ConstrainedObjective(obj,u_min=-u_bnd, u_max=u_bnd, x_min=-x_bnd, x_max=x_bnd);
-solver = TrajectoryOptimization.Solver(model,obj,N=N);
+obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, tf, x0, xf);
+obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
+solver = TrajectoryOptimization.Solver(model,obj,N=100);
 solver.opts.verbose=true;
-solver.opts.use_static = false
-solver.opts.min_dt = dt
-solver.opts.max_dt = dt
-solver.opts.iterations=5
-solver.opts.iterations_outerloop=5
-solver.opts.cost_intermediate_tolerance=1.0e-2;
-solver.opts.cost_tolerance=1.0e-2;
-solver.opts.gradient_intermediate_tolerance=1.0e-2
-solver.opts.gradient_tolerance=1.0e-2
+# solver.opts.use_static = false
+# solver.opts.min_dt = dt
+# solver.opts.max_dt = dt
 solver.opts.live_plotting=false
+solver.opts.iterations_outerloop=30
+solver.opts.sat_att=true
+solver.opts.γ=10
 
-
-U = zeros(m,solver.N);
+# U = rand(Float64,m,solver.N)/1000;
+# U = zeros(m,solver.N);
 
 
 results, stats = TrajectoryOptimization.solve(solver,U)
 X = TrajectoryOptimization.to_array(results.X)
-plot(X[1,:])
-plot!(X[2,:])
-plot!(X[3,:])
+U = TrajectoryOptimization.to_array(results.U)
 
-plot(X[8,:])
+# dircol
+# dt=1.
+# results, stats = TrajectoryOptimization.solve_dircol(solver,X,U)
+
+#plot input
+plot(U[1,:])
+plot!(U[2,:])
+plot!(U[3,:])
+
+#plot velocity
+plot(X[1,:]*R_E)
+plot!(X[2,:]*R_E)
+plot!(X[3,:]*R_E)
+
+#plot position
+plot(X[4,:]*R_E)
+plot!(X[5,:]*R_E)
+plot!(X[6,:]*R_E)
+
+#plot omega
+plot(X[7,:])
+plot!(X[8,:])
+plot!(X[9,:])
+
+#plot quaternion
+plot(X[10,:])
+plot!(X[11,:])
+plot!(X[12,:])
+plot!(X[13,:])
