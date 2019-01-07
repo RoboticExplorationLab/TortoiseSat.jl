@@ -1,6 +1,5 @@
 function DerivFunction(dx,x,u)
 #Summary of this function goes here
-R_E = 6371.0; #earth radius (km)
 
 vel=x[1:3]*R_E;
 pos=x[4:6]*R_E;
@@ -23,12 +22,11 @@ skew_omega=[0 omega[3] -omega[2];
 #find quaternion derivative
 # q_dot_temp=[0*Array(Diagonal(I,3)*1.)+skew_omega omega;-omega' 0];
 # q_dot=q_dot_temp*q;
-q_dot=0.5*qmult(q,[omega;0])
+q_dot=0.5*qmult(q,[0; omega])
 
 #magnetic field
 B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
-q_t=[-q[1:3];q[4]]
-temp=qmult(qmult(q_t,[B_N;0]),q)
+temp=qrot(q,B_N)
 B_B=temp[1:3];
 
 #m_c=zeros(3);
@@ -37,11 +35,11 @@ B_B=temp[1:3];
 #   m_c[i]=-m_max*sign(temp[i]);
 #end
 
-tau_c=cross(u[1:3],B_B); #N-m
+tau_c=cross(u[1:3]/100,B_B); #N-m
 # tau_c=u[1:3]
 
 #rotation
-omega_dot=inv(J)*(tau_c-cross(omega,J*omega)); #rad/s^2
+omega_dot=J_inv*(tau_c-cross(omega,J*omega)); #rad/s^2
 
 #force balance
 #gravity
@@ -64,4 +62,12 @@ dx[1:13] = [a/R_E;vel/R_E;omega_dot;q_dot];
 #print(omega);
 
 
+end
+
+function qrot(q,r)
+      r + 2*cross(q[2:4],cross(q[2:4],r) + q[1]*r)
+end
+
+function qmult(q1,q2)
+      [q1[1]*q2[1] - q1[2:4]'*q2[2:4]; q1[1]*q2[2:4] + q2[1]*q1[2:4] + cross(q1[2:4],q2[2:4])]
 end

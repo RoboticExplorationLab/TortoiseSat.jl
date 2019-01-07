@@ -4,7 +4,7 @@ using Pkg;
 using LinearAlgebra;
 using Plots;
 Pkg.add("Formatting")
-Pkg.add("TrajectoryOptimization");
+Pkg.develop(PackageSpec(url="https://github.com/GathererA/TrajectoryOptimization.jl"))
 using TrajectoryOptimization;
 Pkg.add("DifferentialEquations");
 using DifferentialEquations;
@@ -16,7 +16,6 @@ include("cart_latlong.jl")
 include("NED_cart.jl")
 include("DerivFunction.jl")
 include("OrbitPlotter.jl")
-include("qmult.jl")
 
 #earth parameters
 GM = 3.986004418E14*(1/1000)^3; #earth graviational constant (km^3 s^-2)""
@@ -27,6 +26,7 @@ mass=4.0; #kg
 J=[1E-3 0 0;
     0 1E-3 0;
     0 0 1E-3];
+J_inv=inv(J)
 
 #control parameters
 m_max=1E-4;
@@ -74,7 +74,7 @@ end
 
 #trajectory optimization section
 #initial
-omega_int=[0.02;0;0]
+omega_int=[0.002;0;0]
 q_N_B=[0.;0;1;0]
 x0=[vel[1:3,1]/R_E;pos[1:3,1]/R_E;omega_int;q_N_B];
 
@@ -90,35 +90,44 @@ model=Model(DerivFunction,n,m);
 
 #LQR
 Q=zeros(n,n);
-Q[1:9,1:9] = Array((1.e-7)*Diagonal(I,9));
-Q[10:13,10:13] = Array((1.e-2)*Diagonal(I,4));
-Qf = Array((1.e0)*Diagonal(I,n));
-R = Array((1.e1)*Diagonal(I,m));
+Qf=zeros(n,n);
+Q[1:6,1:6] = Array((1.e-7)*Diagonal(I,6));
+Q[7:9,7:9] = Array((1.e-1)*Diagonal(I,3));
+Qf[1:6,1:6] = Array((1.e-7)*Diagonal(I,6));
+Qf[7:9,7:9] = Array((1.e-3)*Diagonal(I,3));
+α = 1.e2;
+Q[10:13,10:13] = Array(α*Diagonal(I,4));
+Qf[10:13,10:13] = Array(α*Diagonal(I,4))*1.e2;
+
+R = Array((1.e6)*Diagonal(I,m));
 
 #bounds
-u_bnd=.001
+u_bnd=.0006
 x_bnd=10
 
 obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, tf, x0, xf);
 obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
-solver = TrajectoryOptimization.Solver(model,obj_con,N=100);
+solver = TrajectoryOptimization.Solver(model,obj,N=100);
 solver.opts.verbose=true;
 # solver.opts.use_static = false
 # solver.opts.min_dt = dt
 # solver.opts.max_dt = dt
 solver.opts.live_plotting=false
-solver.opts.iterations_outerloop=5
+solver.opts.iterations_outerloop=30
 solver.opts.sat_att=true
-solver.opts.λ_min=-1.0e8
-solver.opts.γ=100
+solver.opts.γ=10
 
-
-U = zeros(m,solver.N);
+# U = rand(Float64,m,solver.N)/1000;
+# U = zeros(m,solver.N);
 
 
 results, stats = TrajectoryOptimization.solve(solver,U)
 X = TrajectoryOptimization.to_array(results.X)
 U = TrajectoryOptimization.to_array(results.U)
+
+# dircol
+# dt=1.
+# results, stats = TrajectoryOptimization.solve_dircol(solver,X,U)
 
 #plot input
 plot(U[1,:])
