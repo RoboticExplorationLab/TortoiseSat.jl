@@ -1,10 +1,9 @@
 function DerivFunction(dx,x,u)
 #Summary of this function goes here
 
-vel=x[1:3]*R_E;
-pos=x[4:6]*R_E;
-omega=x[7:9];
-q=x[10:13]./norm(x[10:13]);
+omega=x[1:3]
+q=x[4:7]./norm(x[4:7])
+t=x[8]
 
 #calculate rotation matrix from quaternion
 # q_inv=[-q[1:3]; q[4]];
@@ -25,8 +24,9 @@ skew_omega=[0 omega[3] -omega[2];
 q_dot=0.5*qmult(q,[0; omega])
 
 #magnetic field
-B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
-temp=qrot(q,B_N)
+# B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
+temp=qrot(q,B_N[floor(Int,t/tf*N+1),:])
+# temp=qrot(q,B_N[1,:])
 B_B=temp[1:3];
 
 #m_c=zeros(3);
@@ -41,24 +41,8 @@ tau_c=cross(u[1:3]/100,B_B); #N-m
 #rotation
 omega_dot=J_inv*(tau_c-cross(omega,J*omega)); #rad/s^2
 
-#force balance
-#gravity
-#2-body gravity
-f_grav=GM*mass/(norm(pos)^2)*-pos/(norm(pos)) #km*kg/s^2
-
-#J2 oblateness term
-J2=0.0010826359;
-#J2=0;
-f_J2=[J2*pos[1]/norm(pos)^7*(6*pos[3]-1.5*(pos[1]^2+pos[2]^2))
-     J2*pos[2]/norm(pos)^7*(6*pos[3]-1.5*(pos[1]^2+pos[2]^2))
-     J2*pos[3]/norm(pos)^7*(3*pos[3]-4.5*(pos[1]^2+pos[2]^2))];
-
-
-#acceleration
-a=(f_grav+f_J2)/mass; #km/s^2
-
 #redo concatination
-dx[1:13] = [a/R_E;vel/R_E;omega_dot;q_dot];
+dx[1:8] = [omega_dot;q_dot;1/(tf-t0)];
 #print(omega);
 
 

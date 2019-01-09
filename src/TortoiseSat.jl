@@ -8,6 +8,7 @@ Pkg.develop(PackageSpec(url="https://github.com/GathererA/TrajectoryOptimization
 using TrajectoryOptimization;
 Pkg.add("DifferentialEquations");
 using DifferentialEquations;
+Pkg.add("SatelliteToolbox");
 
 
 #declare functions
@@ -53,9 +54,11 @@ pos_0=kep_cart(A,t0,GM); #km and km/s
 u0=[pos_0[1,:];pos_0[2,:]]; #km or km/s
 
 # find magnetic field along 1 orbit
+N=100;
 tspan=(t0,tf);
+dt=(tf-t0)/(N-1.001)
 prob=DiffEqBase.ODEProblem(OrbitPlotter,u0,tspan);
-sol=DiffEqBase.solve(prob,dt=1.0,Euler())
+sol=DiffEqBase.solve(prob,dt=dt,Euler())
 pos=sol[1:3,:]
 vel=sol[4:6,:]
 # plot(sol.t,pos[1,:])
@@ -75,45 +78,43 @@ end
 #trajectory optimization section
 #initial
 omega_int=[0.002;0;0]
-q_N_B=[0.;0;1;0]
-x0=[vel[1:3,1]/R_E;pos[1:3,1]/R_E;omega_int;q_N_B];
+q_0=[0.;0;1;0]
+x0=[omega_int;q_0;t0];
 
 #final
-q_N_B_final=[0.;1;0;0]
+q_final=[0.;1;0;0]
 omega_final=[0.;0;0]
-xf=[vel[1:3,end]/R_E;pos[1:3,end]/R_E;omega_final;q_N_B_final]; #km or km/s
+xf=[omega_final;q_final;1]; #km or km/s
 
 #create model
-n=13;
+n=8;
 m=3;
 model=Model(DerivFunction,n,m);
 
 #LQR
 Q=zeros(n,n);
 Qf=zeros(n,n);
-Q[1:6,1:6] = Array((1.e-7)*Diagonal(I,6));
-Q[7:9,7:9] = Array((1.e-1)*Diagonal(I,3));
-Qf[1:6,1:6] = Array((1.e-7)*Diagonal(I,6));
-Qf[7:9,7:9] = Array((1.e-3)*Diagonal(I,3));
+Q[1:3,1:3] = Array((1.e-1)*Diagonal(I,3));
+Qf[1:3,1:3] = Array((1.e-3)*Diagonal(I,3));
 α = 1.e2;
-Q[10:13,10:13] = Array(α*Diagonal(I,4));
-Qf[10:13,10:13] = Array(α*Diagonal(I,4))*1.e2;
+Q[4:7,4:7] = Array(α*Diagonal(I,4));
+Qf[4:7,4:7] = Array(α*Diagonal(I,4))*1.e2;
 
 R = Array((1.e6)*Diagonal(I,m));
 
 #bounds
-u_bnd=.0006
+u_bnd=.005
 x_bnd=10
 
 obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, tf, x0, xf);
 obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
-solver = TrajectoryOptimization.Solver(model,obj,N=100);
+solver = TrajectoryOptimization.Solver(model,obj_con,N=N)
 solver.opts.verbose=true;
 # solver.opts.use_static = false
 # solver.opts.min_dt = dt
 # solver.opts.max_dt = dt
 solver.opts.live_plotting=false
-solver.opts.iterations_outerloop=30
+solver.opts.iterations_outerloop=40
 solver.opts.sat_att=true
 solver.opts.γ=10
 
@@ -134,23 +135,16 @@ plot(U[1,:])
 plot!(U[2,:])
 plot!(U[3,:])
 
-#plot velocity
-plot(X[1,:]*R_E)
-plot!(X[2,:]*R_E)
-plot!(X[3,:]*R_E)
-
-#plot position
-plot(X[4,:]*R_E)
-plot!(X[5,:]*R_E)
-plot!(X[6,:]*R_E)
-
 #plot omega
-plot(X[7,:])
-plot!(X[8,:])
-plot!(X[9,:])
+plot(X[1,:])
+plot!(X[2,:])
+plot!(X[3,:])
 
 #plot quaternion
-plot(X[10,:])
-plot!(X[11,:])
-plot!(X[12,:])
-plot!(X[13,:])
+plot(X[4,:])
+plot!(X[5,:])
+plot!(X[6,:])
+plot!(X[7,:])
+
+#plot time
+plot(X[8,:])
