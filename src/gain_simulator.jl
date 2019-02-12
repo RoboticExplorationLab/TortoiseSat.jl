@@ -1,6 +1,5 @@
-function DerivFunction(dx,x,u)
-#Summary of this function goes here
-
+function gain_simulator(dx,x,u)
+#test function once the input has been determined by the trajectory optimization package
 omega=x[1:3]
 q=x[4:7]./norm(x[4:7])
 t=x[8]
@@ -25,9 +24,14 @@ q_dot=0.5*qmult(q,[0; omega])
 
 #magnetic field
 # B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
-temp=qrot(q,B_N_sim[floor(Int,t*N+1),:])
+temp=qrot(q,B_N_sim[floor(Int,t*N+1),:]*1)
 # temp=qrot(q,B_N[1,:])
 B_B=temp[1:3];
+
+#magnetic field (IGRF)
+# lat,long=cart_latlong(r) #degrees
+# B_N_sim = SatelliteToolbox.igrf12(2019,norm(r)*1000,lat*pi/180,long*pi/180)/1.e9
+# B_N_sim = convert(Array{Float64},B_N_sim)
 
 #m_c=zeros(3);
 #for i=1:3

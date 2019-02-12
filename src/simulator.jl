@@ -1,6 +1,5 @@
-function DerivFunction(dx,x,u)
-#Summary of this function goes here
-
+function simulator(dx,x,u)
+#test function once the input has been determined by the trajectory optimization package
 omega=x[1:3]
 q=x[4:7]./norm(x[4:7])
 t=x[8]
@@ -23,9 +22,7 @@ skew_omega=[0 omega[3] -omega[2];
 # q_dot=q_dot_temp*q;
 q_dot=0.5*qmult(q,[0; omega])
 
-#magnetic field
-# B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
-temp=qrot(q,B_N_sim[floor(Int,t*N+1),:])
+temp=qrot(q,B_N_sim[floor(Int,t*N+1),:]*1)
 # temp=qrot(q,B_N[1,:])
 B_B=temp[1:3];
 
@@ -49,7 +46,7 @@ dx[1:8] = [omega_dot;q_dot;1/(tf-t0)];
 end
 
 function qrot(q,r)
-      (r + 2*cross(q[2:4],cross(q[2:4],r) + q[1]*r))
+      r + 2*cross(q[2:4],cross(q[2:4],r) + q[1]*r)
 end
 
 function qmult(q1,q2)

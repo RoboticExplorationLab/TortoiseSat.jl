@@ -1,4 +1,4 @@
-function kep_cart(A,t,GM)
+function kep_ECI(A,t,GM)
 #this function converts keplerian orbital elements and a mean anomaly to
 #cartesian coordinates
 
