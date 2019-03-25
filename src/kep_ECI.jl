@@ -14,7 +14,7 @@ function kep_ECI(A,t,GM)
     end
 
         #find true anomaly
-        nu=2*atan(sqrt(1+A_temp[1]).*sind(E[end]/2),
+        nu=2*atand(sqrt(1+A_temp[1]).*sind(E[end]/2),
         sqrt(1-A_temp[1]).*cosd(E[end]/2));
 
         #find distance to central body

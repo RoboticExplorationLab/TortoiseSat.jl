@@ -1,7 +1,13 @@
 function simulator(dx,x,u)
 #test function once the input has been determined by the trajectory optimization package
-omega=x[1:3]
-q=x[4:7]./norm(x[4:7])
+#assign noise to rotation
+omega_noise = randn(3)*(.38*pi/180)^2
+omega = x[1:3]+omega_noise
+#assign noise to quaternion
+q_noise = randn(3,1)*(1*pi/180)^2
+θ_noise = norm(q_noise)
+r_noise = q_noise/θ_noise
+q = qmult(x[4:7]./norm(x[4:7]),[cos(θ_noise/2);r_noise*sin(θ_noise/2)])
 t=x[8]
 
 #calculate rotation matrix from quaternion
@@ -21,8 +27,8 @@ skew_omega=[0 omega[3] -omega[2];
 # q_dot_temp=[0*Array(Diagonal(I,3)*1.)+skew_omega omega;-omega' 0];
 # q_dot=q_dot_temp*q;
 q_dot=0.5*qmult(q,[0; omega])
-
-temp=qrot(q,B_N_sim[floor(Int,t*N+1),:]*1)
+B_N_noise = rand(3)*(1E-5)^2 #adding 10 percent error
+temp=qrot(q,B_N_sim[floor(Int,t*N+1),:]+B_N_noise)
 # temp=qrot(q,B_N[1,:])
 B_B=temp[1:3];
 

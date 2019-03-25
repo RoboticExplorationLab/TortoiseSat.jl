@@ -2,9 +2,10 @@
 
 using Pkg;
 using LinearAlgebra;
+ENV["PLOTS_USE_ATOM_PLOTPANE"] = "false"
 using Plots;
 Pkg.add("Formatting")
-Pkg.develop(PackageSpec(url="https://github.com/GathererA/TrajectoryOptimization.jl"))
+Pkg.add("TrajectoryOptimization")
 using TrajectoryOptimization;
 Pkg.add("DifferentialEquations");
 using DifferentialEquations;
@@ -16,6 +17,8 @@ Pkg.add("SparseArrays")
 using SparseArrays
 Pkg.add("Interpolations")
 using Interpolations
+Pkg.add("AttitudeController")
+using AttitudeController
 
 
 #declare functions
@@ -30,13 +33,20 @@ include("gain_simulator.jl")
 GM = 3.986004418E14*(1/1000)^3 #earth graviational constant (km^3 s^-2)""
 R_E = 6371.0 #earth radius (km)
 
-#satellite parameters
-mass=.75 #kg
-J=[00.00125 0 0;
-    0 0.00125 0;
-    0 0 0.00125]
+# #satellite parameters (1U)
+# mass=.75 #kg
+# J=[00.00125 0 0;
+#     0 0.00125 0;
+#     0 0 0.00125] #kgm2
+# J_inv=inv(J)
+
+#satellite parameters (3U)
+mass=3.5 #kg
+J=[0.005256 0 0;
+    0 0.04939 0;
+    0 0 0.04939] #kgm2
 J_inv=inv(J)
-BC = 50 #kg/m^2
+
 
 #control parameters
 m_max=1E-4
@@ -54,17 +64,17 @@ T=2*pi*sqrt(A[2].^3/GM)
 
 #time initialization
 MJD_0 = 58155.0 #modified julian day
-t0=0 #seconds
-tf=60.0*10+t0 #seconds
+t0=0.0 #seconds
+tf=60.0*6+t0 #seconds
 
 #initial
 pos_0=kep_ECI(A,t0,GM) #km and km/s
 u0=[pos_0[1,:];pos_0[2,:]] #km or km/s
 
 # find magnetic field along 1 orbit
-N=5000 #initialize the ultimate number of knot points
+N=1000 #initialize the ultimate number of knot points
 dt=(tf-t0)/(N)
-tspan=(t0,tf+dt*99) #go a little over for the ForwardDiff downstream
+tspan=(t0,tf*2) #go a little over for the ForwardDiff downstream
 prob=DiffEqBase.ODEProblem(OrbitPlotter,u0,tspan)
 sol=DiffEqBase.solve(prob,dt=dt,adaptive=false,RK4())
 pos=sol[1:3,:]
@@ -74,13 +84,13 @@ plot!(sol.t,pos[2,:])
 plot!(sol.t,pos[3,:])
 
 #convert from ECI to ECEF for IGRF
-t = [t0:dt:tf+dt*99...]
+t = t0:dt:2*tf
 GMST = (280.4606 .+ 360.9856473*(t/24/60/60 .+ (MJD_0.+t./(24*60*60)) .- 51544.5))./180*pi #calculates Greenwich Mean Standard Time
 ROT = zeros(3,3,length(t)) #cretes rotation matrix for every time step
 pos_ecef = zeros(3,length(t)) #populates ecef position vector
 lat = zeros(length(t),1)
 long = zeros(length(t),1) # creates latitude and longitude
-for i = 1:length(t)
+for i = 1:length(t)-1
     ROT[:,:,i] = [cos(GMST[i]) sin(GMST[i]) 0;
     -sin(GMST[i]) cos(GMST[i]) 0;
     0 0 1]
@@ -89,24 +99,16 @@ for i = 1:length(t)
     long[i] = atan(pos_ecef[2,i]/pos_ecef[1,i])
 end
 
-
-#find dipole model of magnetic field
-B0=-8E15/(1000)^3
-B_N=zeros(size(pos,2),3)
-for i=1:size(pos,2)
-    B_N[i,:]=[3*pos[1,i]*pos[3,i]*(B0/norm(pos[:,i])^5);3*pos[2,i]*pos[3,i]*(B0/norm(pos[:,i])^5);(3*pos[3,i]^2-norm(pos[:,i])^2)*(B0/norm(pos[:,i])^5)];
-end
-
 #find the IGRF magnetic field for the orbit!
 #magnetic field (IGRF)
-B_N_sim = zeros(size(pos,2),3)
-for i = 1:size(pos,2)
+B_N_sim = zeros(size(pos,2)-1,3)
+for i = 1:size(pos,2)-1
     B_N_sim[i,:] = SatelliteToolbox.igrf12(2019,norm(pos_ecef[:,i])*1000,lat[i],long[i])/1.e9
 end
 B_N_sim = convert(Array{Float64},B_N_sim)
-plot(sol.t,B_N_sim[:,1])
-plot!(sol.t,B_N_sim[:,2])
-plot!(sol.t,B_N_sim[:,3])
+plot(sol.t[1:end-1],B_N_sim[:,1])
+plot!(sol.t[1:end-1],B_N_sim[:,2])
+plot!(sol.t[1:end-1],B_N_sim[:,3])
 
 
 #trajectory optimization section
@@ -120,66 +122,214 @@ q_final=[0.;1;0;0]
 omega_final=[0.;0;0]
 xf=[omega_final;q_final;1] #km or km/s
 
-#enter into warm start
-N_vect = N/10:N/10:N #create initial number of knot points
-dt_vect=(tf-t0)./(N_vect)
-
 #create model
 n=8;
 m=3;
-model=Model(DerivFunction,n,m);
 
-#LQR
-Q=zeros(n,n);
-Qf=zeros(n,n);
-Q[1:3,1:3] = Array((1.e-1)*Diagonal(I,3));
-Qf[1:3,1:3] = Array((1.e-3)*Diagonal(I,3));
-α = 3.e3;
-Q[4:7,4:7] = Array(α*Diagonal(I,4));
-Qf[4:7,4:7] = Array(α*Diagonal(I,4))*1.e3;
+#define expansion function
+function quaternion_expansion(cost::QuadraticCost, x::AbstractVector{Float64}, u::AbstractVector{Float64})
+    #renormalize for quaternion
+    qk = x
+    sk = qk[4]
+    vk = qk[5:7]
 
-R = Array((1.e2)*Diagonal(I,m));
+    qn = x
+    sn = qn[4]
+    vn = qn[5:7]
 
-#bounds
-u_bnd=.005
-x_bnd=10
+    Gk = [-vk'; sk*Array(1.0*Diagonal(I,3)) + hat(vk)]
+    Gn = [-vn'; sn*Array(1.0*Diagonal(I,3)) + hat(vn)]
 
-
-#begin on warm start
-
-for i = 1:length(N_vect)
-
-    obj = TrajectoryOptimization.UnconstrainedObjective(Q, R, Qf, tf, x0, xf)
-    obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
-    solver = TrajectoryOptimization.Solver(model,obj,N=convert(Int64,N_vect[i]+1))
-    solver.opts.verbose=true
-    solver.opts.live_plotting=false
-    solver.opts.iterations_outerloop=40
-    solver.opts.sat_att=true
-    solver.opts.γ=10
-
-    if i == 1
-        U = zeros(Float64,m,solver.N) #clears state and input
-        X = zeros(Float64,m,solver.N)
-        U = rand(Float64,m,solver.N)/1000 #initialize random input and state
-        X = rand(Float64,m,solver.N)/1000
-    end
-    results, stats = TrajectoryOptimization.solve(solver,U)
-    X = TrajectoryOptimization.to_array(results.X) #assigns state and input
-    U = TrajectoryOptimization.to_array(results.U)
-    K_lqr = TrajectoryOptimization.to_array(results.K)
-
-    integration=:rk4
-    t_warm = t0:dt_vect[i+1]:tf
-    X, U = interpolate_trajectory( integration, X, U, t_warm) #splines over U and X
-
-    print("Warm start has completed pass ",i, " of ", length(N_vect))
+    #recompute A and B matrices through permutation matrices
+    perm_Gn = zeros(7,8)
+    perm_Gk = zeros(8,7)
+    perm_Gn[1:3,1:3]= Array(1.0*Diagonal(I,3))
+    perm_Gn[4:6,4:7] = Gn'
+    perm_Gk[1:3,1:3]= Array(1.0*Diagonal(I,3))
+    perm_Gk[4:7,4:6] = Gk
+    return perm_Gn*cost.Q*perm_Gk, cost.R, cost.H*perm_Gk, perm_Gn*(cost.Q*x+cost.q), cost.R*u+ cost.r
 end
 
+function quaternion_expansion(cost::QuadraticCost, xN::AbstractVector{Float64})
+    #renormalize for quaternion at boundary
+    qn = xN
+    sn = qn[4]
+    vn = qn[5:7]
+
+    Gn = [-vn'; sn*Array(1.0*Diagonal(I,3)) + hat(vn)]
+    perm_Gn = zeros(7,8)
+    perm_Gn[1:3,1:3]= Array(1.0*Diagonal(I,3))
+    perm_Gn[4:6,4:7] = Gn'
+
+    return perm_Gn*cost.Qf*perm_Gn', perm_Gn*(cost.Qf*xN+cost.qf)
+end
+
+function quaternion_error(X1,X2)
+#for a state where:
+#1-3: omega
+#4-7: quaternion
+#8: time
+    δx = zeros(7)
+    δx[1:3] = X1[1:3] - X2[1:3]
+
+    # #calculate the error quaternion
+    # δx[4:6] = [zeros(3,1) Array(1.0*Diagonal(I,3))]*qmult(q_inv(X2[4:7]),X1[4:7])
+
+    #calculate the modified Rodrigues parameters and find the error
+    q_e = qmult(q_inv(X2[4:7]),X1[4:7]) #finds quaternion error
+    MRP = q_e[2:4]/(1+q_e[1]) #finds Modified Rodrigues Parameter
+    δx[4:6] = MRP
+
+    return δx
+end
+
+model=Model(DerivFunction,n,m,quaternion_error,quaternion_expansion);
+
+#LQR
+Q=zeros(n,n)
+Qf=zeros(n,n)
+Q[1:3,1:3] = Array((1.e3)*Diagonal(I,3))
+Qf[1:3,1:3] = Array((1.e1)*Diagonal(I,3))
+α = 1e3
+Q[4:7,4:7] = Array(α*Diagonal(I,4))
+Qf[4:7,4:7] = Array(α*Diagonal(I,4))*1.e3
+
+R = Array((10*norm(B_N_sim))*Diagonal(I,m))
+
+#bounds
+u_bnd=[2;2;2]
+x_bnd=10
+
+# ## now new cost function with minimum
+# function quat_cost(x::AbstractVector, u::AbstractVector)
+#     #this function uses the quaternion error rather than LQR for cost
+#     0.5*(x[1:3] - xf[1:3])'*Q[1:3,1:3]*(x[1:3] - xf[1:3]) + 0.5*u'*R*u +
+#     Q[5,5]*min(1-xf[4:7]'*x[4:7], 1+xf[4:7]'*x[4:7])
+# end
+#
+# function quat_cost_terminal(x::AbstractVector)
+#     #this function uses the quaternion error rather than LQR for cost, terminal constraint
+#     0.5*(x[1:3] - xf[1:3])'*Qf[1:3,1:3]*(x[1:3] - xf[1:3]) +
+#     Q[5,5]*min(1-xf[4:7]'*x[4:7], 1+xf[4:7]'*x[4:7])
+# end
+#
+# function quat_cost_grad(x::AbstractVector,u::AbstractVector)
+#     #this function calculates the gradient of the quaternion error cost funciton
+#     if 1-xf[4:7]'*x[4:7] >= 1+xf[4:7]'*x[4:7]
+#         q_grad = [(x[1:3] - xf[1:3])'*Q[1:3,1:3] Q[5,5]*xf[4:7]'*L_decomp(x[4:7]) 0]
+#     else
+#         q_grad = [(x[1:3] - xf[1:3])'*Q[1:3,1:3] -Q[5,5]*xf[4:7]'*L_decomp(x[4:7]) 0]
+#     end
+#     r_grad = u'*R
+#     return q_grad,r_grad
+# end
+#
+# function quat_cost_grad(xN::AbstractVector)
+#     #this function calculates the gradient of the quaternion error cost funciton
+#     if 1-xf[4:7]'*xN[4:7] >= 1+xf[4:7]'*xN[4:7]
+#         qf_grad = [(xN[1:3] - xf[1:3])'*Q[1:3,1:3] Q[5,5]*xf[4:7]'*L_decomp(xN[4:7]) 0]
+#     else
+#         qf_grad = [(xN[1:3] - xf[1:3])'*Q[1:3,1:3] -Q[5,5]*xf[4:7]'*L_decomp(xN[4:7]) 0]
+#     end
+#     return qf_grad
+# end
+#
+# function quat_cost_hess(x::AbstractVector,u::AbstractVector)
+#     #this function calculates the hessian of the error quaternion cost function
+#     H_hess = zeros(3,7)
+#     Q_hess = [Q[1:3,1:3]' zeros(3,4);
+#         zeros(4,7);
+#         zeros(1,7)]
+#     R_hess = R'
+#     return Q_hess,R_hess,H_hess
+# end
+#
+# function quat_cost_hess(xN::AbstractVector)
+#     #this function calculates the hessian of the error quaternion cost function
+#     H_hess = zeros(3,7)
+#     Qf_hess = [Q[1:3,1:3]' zeros(3,4);
+#         zeros(4,7);
+#         zeros(1,7)]
+#     return Qf_hess
+# end
+
+## now new cost function with minimum
+function quat_cost(x::AbstractVector, u::AbstractVector)
+    #this function uses the quaternion error rather than LQR for cost
+    0.5*(x[1:3] - xf[1:3])'*Q[1:3,1:3]*(x[1:3] - xf[1:3]) + 0.5*u'*R*u +
+    Q[5,5]*min(1-xf[4:7]'*x[4:7], 1+xf[4:7]'*x[4:7])
+end
+
+function quat_cost_terminal(x::AbstractVector)
+    #this function uses the quaternion error rather than LQR for cost, terminal constraint
+    0.5*(x[1:3] - xf[1:3])'*Qf[1:3,1:3]*(x[1:3] - xf[1:3]) +
+    Q[5,5]*min(1-xf[4:7]'*x[4:7], 1+xf[4:7]'*x[4:7])
+end
+
+function quat_cost_grad(x::AbstractVector,u::AbstractVector)
+    #this function calculates the gradient of the quaternion error cost funciton
+    if 1-xf[4:7]'*x[4:7] >= 1+xf[4:7]'*x[4:7]
+        q_grad = [(x[1:3] - xf[1:3])'*Q[1:3,1:3] Array(Q[5,5]*xf[4:7]') 0]
+    else
+        q_grad = [(x[1:3] - xf[1:3])'*Q[1:3,1:3] Array(-Q[5,5]*xf[4:7]') 0]
+    end
+    r_grad = u'*R
+    return q_grad[1:end],r_grad[1:end]
+end
+
+function quat_cost_grad(xN::AbstractVector)
+    #this function calculates the gradient of the quaternion error cost funciton
+    if 1-xf[4:7]'*xN[4:7] >= 1+xf[4:7]'*xN[4:7]
+        qf_grad = [(xN[1:3] - xf[1:3])'*Q[1:3,1:3] Array(Q[5,5]*xf[4:7]') 0]
+    else
+        qf_grad = [(xN[1:3] - xf[1:3])'*Q[1:3,1:3] Array(-Q[5,5]*xf[4:7]') 0]
+    end
+    return qf_grad[1:end]
+end
+
+function quat_cost_hess(x::AbstractVector,u::AbstractVector)
+    #this function calculates the hessian of the error quaternion cost function
+    H_hess = zeros(3,8)
+    perm = [zeros(1,3);hat(xf[5:7])+Array(Diagonal(I,3))*xf[4]]'
+    Q_hess = [Q[1:3,1:3]' zeros(3,5);
+        zeros(4,8);
+        zeros(1,8)]
+    R_hess = R'
+    return Q_hess,R_hess,H_hess
+end
+
+function quat_cost_hess(xN::AbstractVector)
+    #this function calculates the hessian of the error quaternion cost function
+    H_hess = zeros(8,3)
+    perm = [zeros(1,3);hat(xf[5:7])+Array(Diagonal(I,3))*xf[4]]'
+    Qf_hess = [Q[1:3,1:3]' zeros(3,5);
+        zeros(4,8);
+        zeros(1,8)]
+    return Qf_hess
+end
+
+
+#random start to trajopt
+# cost = GenericCost(quat_cost,quat_cost_terminal,quat_cost_grad,quat_cost_hess,n,m)
+# obj = UnconstrainedObjective(cost,tf,x0,xf)
+obj = LQRObjective(Q, R, Qf, tf, x0, xf)
+obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
+solver = TrajectoryOptimization.Solver(model,obj,N=N)
+solver.opts.verbose=true
+solver.opts.iterations_outerloop=3
+solver.opts.iterations_innerloop=100
+solver.opts.dJ_counter_limit = 1
+solver.opts.sat_att = true
+U = rand(Float64,m,solver.N)/1000 #initialize random input and state
+X = rand(Float64,m,solver.N)/1000
+results, stats = TrajectoryOptimization.solve(solver,U)
+X = TrajectoryOptimization.to_array(results.X) #assigns state and input
+U = TrajectoryOptimization.to_array(results.U)
+
+
 #plot input
-plot(U[1,:])
-plot!(U[2,:])
-plot!(U[3,:])
+plt = plot(t[1:N-1],U[1:3,:]'./100,label = ["U1" "U2" "U3"])
+plot!(title = "3U CubeSat Slew", xlabel = "Time (s)", ylabel = "Magnetic Moment(Am2)")
 
 #plot omega
 plot(X[1,:])
@@ -202,7 +352,7 @@ x0_lqr = zeros(n)
 x0_lqr[1:3] = x0[1:3]
 
 #creates noise over initial conditions
-q_noise = randn(3,1)*(10*pi/180)^2
+q_noise = randn(3,1)*(.0001*pi/180)^2 #assign noise to initial quaternion
 θ_noise = norm(q_noise)
 r_noise = q_noise/θ_noise
 x0_lqr[4:7] = qmult(x0[4:7],[cos(θ_noise/2);r_noise*sin(θ_noise/2)])
@@ -213,8 +363,8 @@ x0_lqr[4:7] = qmult(x0[4:7],[cos(θ_noise/2);r_noise*sin(θ_noise/2)])
 # dt_lqr = dt/interp_factor
 # t_lqr = [t0:dt_lqr:tf...]
 #
-# #define integration ds
-# integration=:rk4
+#define integration ds
+integration=:rk4
 #
 # #interpolate to find new state and input
 # X_lqr, U_lqr = interpolate_trajectory( integration, X, U, t_lqr)
@@ -226,27 +376,33 @@ U_lqr = U
 dt_lqr = dt
 
 #assigns simulation and gains functions for TVLQR
+include("simulator.jl")
 f! = simulator
 f_gains! = gain_simulator
 
 #creates Q and R matrices for TVLQR
-α = 2.e-1
-β = 1.e5
+α = 1.e-1
+β = 1.e3
 Q_lqr = zeros(6,6)
 Q_lqr[1:3,1:3] = Array((α)*Diagonal(I,3))
 Q_lqr[4:6,4:6] = Array((α*β)*Diagonal(I,3))
 Qf_lqr = zeros(6,6)
-Qf_lqr[1:3,1:3] = Array((α)*Diagonal(I,3))*1.e10
-Qf_lqr[4:6,4:6] = Array((α*β)*Diagonal(I,3))*1.e5
-R_lqr = Array((1.e1)*Diagonal(I,3))
+Qf_lqr[1:3,1:3] = Array((α)*Diagonal(I,3))*1.e4
+Qf_lqr[4:6,4:6] = Array((α*β)*Diagonal(I,3))*1.e8
+R_lqr = Array((2.e-2)*Diagonal(I,3))
 
 #executes TVLQR
-X_sim, U_sim, dX, K = attitude_simulation(f!,f_gains!,integration,X_lqr,U_lqr,dt_lqr,x0_lqr,tf,Q_lqr,R_lqr,Qf_lqr)
+X_sim, U_sim, dX, K = attitude_simulation(f!,f_gains!,integration,X_lqr,U_lqr,dt_lqr,x0_lqr,t0,tf,Q_lqr,R_lqr,Qf_lqr)
 
 #plotting
-plot(X_sim[1:3,:]')
-plot(X_sim[4:7,:]')
-# plot(X_sim[8,:])
+plt = plot(t[1:N],X_sim[1:3,:]',label = ["omega1" "omega2" "omega3"])
+plot!(title = "3U CubeSat Slew", xlabel = "Time (s)", ylabel = "Rotation Rate (rad/s)")
+
+plt = plot(t[1:N],X_sim[4:7,:]',label = ["q1" "q2" "q3" "q4"])
+plot!(title = "3U CubeSat Slew", xlabel = "Time (s)", ylabel = "Quaternion")
+
+plt = plot(t[1:N],U_sim[1:3,:]'./100,label = ["u1" "u2" "u3"])
+plot!(title = "3U CubeSat Slew", xlabel = "Time (s)", ylabel = "Magnetic Moment (Am2)")
 
 plot(dX[1:3,:]')
 plot(dX[4:6,:]')
@@ -257,3 +413,15 @@ plot!(U_lqr',color="blue")
 
 # plot(B_N,color="red")
 # plot!(B_N_sim,color="blue")
+
+
+function L_decomp(q)
+    #this function takes in a desired quaternion computes the L decomposition
+    L = [q[1] -q[2] -q[3] -q[4];
+         q[2] q[1] -q[4] q[3];
+         q[3] q[4] q[1] -q[2];
+         q[4] -q[3] q[2] q[1]]
+
+         return L
+
+end
