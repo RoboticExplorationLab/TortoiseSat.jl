@@ -1,26 +1,23 @@
-#this code is for trajectory optimization of an underactuated satellite
-
-#install packages
-using Pkg;
-using LinearAlgebra;
-using Plots;
-using TrajectoryOptimization;
-using DifferentialEquations;
+using Plots
+using MeshCat
+using GeometryTypes
+using CoordinateTransformations
+using FileIO
+using MeshIO
+using Random
+using TrajectoryOptimization
+using DifferentialEquations
+using LinearAlgebra
 using SatelliteToolbox
-using ForwardDiff
-using SparseArrays
-using Interpolations
-using AttitudeController
-using IGRF
 
 
-#declare functions
-include("kep_ECI.jl")
-include("NED_cart.jl")
-include("DerivFunction.jl")
-include("OrbitPlotter.jl")
-include("simulator.jl")
-include("gain_simulator.jl")
+#Run TrajectoryOptimization
+include("/Users/agatherer/.julia/dev/TortoiseSat/src/kep_ECI.jl")
+include("/Users/agatherer/.julia/dev/TortoiseSat/src/NED_cart.jl")
+include("/Users/agatherer/.julia/dev/TortoiseSat/src/DerivFunction.jl")
+include("/Users/agatherer/.julia/dev/TortoiseSat/src/OrbitPlotter.jl")
+include("/Users/agatherer/.julia/dev/TortoiseSat/src/simulator.jl")
+include("/Users/agatherer/.julia/dev/TortoiseSat/src/gain_simulator.jl")
 
 #earth parameters
 GM = 3.986004418E14*(1/1000)^3 #earth graviational constant (km^3 s^-2)""
@@ -44,21 +41,20 @@ BC = mass/2.2/(J[1,1]*J[2,2])
 #enter orbital parameters
 alt=400 #altitude in km
 A=zeros(1,6)
-#enter orbital parameters
 A[1] = 0 #circular orbits
 A[2]= alt+R_E #semi-major axis
-A[3] = rand(1)[1]*180 #inclination in degrees
-A[4] = rand(1)[1]*360 #assign ascending nodes
+A[3] = 51.64 #inclination in degrees
+A[4] = 0 #assign ascending nodes
 A[5] = 0 #argument of periapsis
-A[6] = rand(1)[1]*360 #initial true anomoly
+A[6] = 0 #initial true anomoly
 T=2*pi*sqrt(A[2].^3/GM)
 
 #time initialization
 MJD_0 = 58155.0 #modified julian day
 t0=0.0 #seconds
-tf=60.0*10+t0 #seconds
+tf=60.0*6+t0 #seconds
 
-#initial state
+#initial
 pos_0=kep_ECI(A,t0,GM) #km and km/s
 u0=[pos_0[1,:];pos_0[2,:]] #km or km/s
 
@@ -87,7 +83,7 @@ for i = 1:length(t)-1
     0 0 1]
     pos_ecef[:,i] = ROT[:,:,i]*pos[:,i]
     lat[i] = pos_ecef[3,i]/norm(pos_ecef[:,i])
-    long[i] = atan(pos_ecef[2,i],pos_ecef[1,i])
+    long[i] = atan(pos_ecef[2,i]/pos_ecef[1,i])
 end
 
 #interpolate the magnetic field to remove any unsmoothe issues found
@@ -123,7 +119,7 @@ xf=[omega_final;q_final;1] #km or km/s
 n=8;
 m=3;
 
-#define expansion function for TrajOpt
+#define expansion function
 function quaternion_expansion(cost::QuadraticCost, x::AbstractVector{Float64}, u::AbstractVector{Float64})
     #renormalize for quaternion
     qk = x
@@ -180,25 +176,24 @@ function quaternion_error(X1,X2)
     return δx
 end
 
-#consolidate the model
-model=Model(DerivFunction,n,m,quaternion_error,quaternion_expansion)
+model=Model(DerivFunction,n,m,quaternion_error,quaternion_expansion);
 
-#LQR weights
+#LQR
 Q=zeros(n,n)
 Qf=zeros(n,n)
-Q[1:3,1:3] = Array((2e5)*Diagonal(I,3))
-Qf[1:3,1:3] = Array((1e7)*Diagonal(I,3))
-α = 2e3
+Q[1:3,1:3] = Array((1.e5)*Diagonal(I,3))
+Qf[1:3,1:3] = Array((1.e9)*Diagonal(I,3))
+α = 1e3
 Q[4:7,4:7] = Array(α*Diagonal(I,4))
 Qf[4:7,4:7] = Array(α*Diagonal(I,4))*1.e3
 
-R = Array((1.e-2/norm(B_N_sim))*Diagonal(I,m))
+R = Array((1000*norm(B_N_sim))*Diagonal(I,m))
 
 #bounds
 u_bnd=[19;19;19]
 x_bnd=10
 
-# now new cost function with minimum
+## now new cost function with minimum
 function quat_cost(x::AbstractVector, u::AbstractVector)
     #this function uses the quaternion error rather than LQR for cost
     0.5*(x[1:3] - xf[1:3])'*Q[1:3,1:3]*(x[1:3] - xf[1:3]) + 0.5*u'*R*u +
@@ -269,33 +264,12 @@ U = rand(Float64,m,solver.N)/1000 #initialize random input and state
 # X = rand(Float64,m,solver.N)/1000
 
 #use eigen-axis slew as first guess for state
-ω_guess, q_guess = eigen_axis_slew(x0[1:7],xf[1:7],t[1:N])
+ω_guess, q_guess = eigen_axis_slew(x0[1:7],xf[1:7],t[1:1000])
 X = [ω_guess[:,1:N];q_guess[:,1:N];reshape(t[1:N],1,N)]
 
 results, stats = TrajectoryOptimization.solve(solver,U)
 X = TrajectoryOptimization.to_array(results.X) #assigns state and input
 U = TrajectoryOptimization.to_array(results.U)
-
-
-#plot input
-plt = plot(t[1:N-1],U[1:3,:]',label = ["U1" "U2" "U3"])
-plot!(title = "1U CubeSat Slew", xlabel = "Time (s)", ylabel = "Magnetic Moment(Am2)")
-
-#plot omega
-plot(X[1,:])
-plot!(X[2,:])
-plot!(X[3,:])
-
-#plot quaternion
-plot(X[4,:])
-plot!(X[5,:])
-plot!(X[6,:])
-plot!(X[7,:])
-
-#plot time
-plot(X[8,:])
-
-#now test!
 
 #assigns initial conditions
 x0_lqr = zeros(n)
@@ -307,19 +281,9 @@ q_noise = randn(3,1)*(.0001*pi/180)^2 #assign noise to initial quaternion
 r_noise = q_noise/θ_noise
 x0_lqr[4:7] = qmult(x0[4:7],[cos(θ_noise/2);r_noise*sin(θ_noise/2)])
 
-# #assigns new time vector
-# interp_factor = 5
-# N_lqr = N*interp_factor
-# dt_lqr = dt/interp_factor
-# t_lqr = [t0:dt_lqr:tf...]
-#
 #define integration ds
 integration=:rk4
 #
-# #interpolate to find new state and input
-# X_lqr, U_lqr = interpolate_trajectory( integration, X, U, t_lqr)
-
-
 #since we are no longer interpolating, just reassign
 X_lqr = X
 U_lqr = U
@@ -344,34 +308,97 @@ R_lqr = Array((2.e-2)*Diagonal(I,3))
 #executes TVLQR
 X_sim, U_sim, dX, K = attitude_simulation(f!,f_gains!,integration,X_lqr,U_lqr,dt_lqr,x0_lqr,t0,tf,Q_lqr,R_lqr,Qf_lqr)
 
-#plotting
-plt = plot(t[1:N],X_sim[1:3,:]',label = ["omega1" "omega2" "omega3"])
-plot!(title = "3U CubeSat Slew", xlabel = "Time (s)", ylabel = "Rotation Rate (rad/s)")
+#################
+# Visualization #
+#################
 
-plt = plot(t[1:N],X_sim[4:7,:]',label = ["q1" "q2" "q3" "q4"])
-plot!(title = "3U CubeSat Slew", xlabel = "Time (s)", ylabel = "Quaternion")
+vis = Visualizer()
+open(vis)
 
-plt = plot(t[1:N],U_sim[1:3,:]'./100,label = ["u1" "u2" "u3"])
-plot!(title = "3U CubeSat Slew", xlabel = "Time (s)", ylabel = "Magnetic Moment (Am2)")
+# create 1U cubesat object
+obj = setobject!(vis, HyperRectangle(Vec(0., 0, 0), Vec(1., 1, 1)))
+settransform!(vis, Translation(-0.5, -0.5, 0))
 
-plot(dX[1:3,:]')
-plot(dX[4:6,:]')
+# color options
+green_ = MeshPhongMaterial(color=RGBA(0, 1, 0, 1.0))
+green_transparent = MeshPhongMaterial(color=RGBA(0, 1, 0, 0.1))
+red_ = MeshPhongMaterial(color=RGBA(1, 0, 0, 1.0))
+red_transparent = MeshPhongMaterial(color=RGBA(1, 0, 0, 0.1))
+blue_ = MeshPhongMaterial(color=RGBA(0, 0, 1, 1.0))
+blue_transparent = MeshPhongMaterial(color=RGBA(0, 0, 1, 0.1))
+blue_semi = MeshPhongMaterial(color=RGBA(0, 0, 1, 0.5))
+yellow_ = MeshPhongMaterial(color=RGBA(1, 1, 0, 1.0))
+yellow_transparent = MeshPhongMaterial(color=RGBA(1, 1, 0, 0.75))
 
+orange_ = MeshPhongMaterial(color=RGBA(233/255, 164/255, 16/255, 1.0))
+orange_transparent = MeshPhongMaterial(color=RGBA(233/255, 164/255, 16/255, 0.1))
+black_ = MeshPhongMaterial(color=RGBA(0, 0, 0, 1.0))
+black_transparent = MeshPhongMaterial(color=RGBA(0, 0, 0, 0.1))
+black_semi = MeshPhongMaterial(color=RGBA(0, 0, 0, 0.5))
 
-plot(U_sim',color="red")
-plot!(U_lqr',color="blue")
+traj = vis["traj"]
+traj_x0 = vis["traj_x0"]
+traj_uncon = vis["traj_uncon"]
+target = vis["target"]
+satellite = vis["satellite"]
 
-# plot(B_N,color="red")
-# plot!(B_N_sim,color="blue")
+# Set camera location
+settransform!(vis["/Cameras/default"], compose(Translation(0., 72., 60.),LinearMap(RotX(pi/7.5)*RotZ(pi/2))))
+# settransform!(vis["/Cameras/default"], compose(Translation(0., 75., 50.),LinearMap(RotX(pi/10)*RotZ(pi/2))))
+# settransform!(vis["/Cameras/default"], compose(Translation(0., 35., 65.),LinearMap(RotX(pi/3)*RotZ(pi/2))))
 
+# Create and place trajectory
+# for i = 1:N
+#     setobject!(vis["traj_uncon"]["t$i"],sphere_small,blue_)
+#     settransform!(vis["traj_uncon"]["t$i"], Translation(results_uncon.X[i][1], results_uncon.X[i][2], results_uncon.X[i][3]))
+# end
 
-function L_decomp(q)
-    #this function takes in a desired quaternion computes the L decomposition
-    L = [q[1] -q[2] -q[3] -q[4];
-         q[2] q[1] -q[4] q[3];
-         q[3] q[4] q[1] -q[2];
-         q[4] -q[3] q[2] q[1]]
+# for i = 1:N
+#     setobject!(vis["traj_x0"]["t$i"],sphere_small,blue_)
+#     settransform!(vis["traj_x0"]["t$i"], Translation(X0[1,i], X0[2,i], X0[3,i]))
+# end
+# for i = 1:size(X_guess,2)
+#     setobject!(vis["traj_x0"]["t$i"],sphere_medium,yellow_transparent)
+#     settransform!(vis["traj_x0"]["t$i"], Translation(X_guess[1:3,i]...))
+# end
 
-         return L
+# for i = 1:N
+#     setobject!(vis["traj"]["t$i"],obj,black_)
+#     settransform!(vis["traj"]["t$i"], Translation(results_con.X[i][1:3]...))
+# end
 
+# setobject!(vis["robot_uncon"]["ball"],sphere_medium,orange_transparent)
+# setobject!(vis["robot_uncon"]["quad"],robot_obj,black_)
+
+# setobject!(vis["robot"]["ball"],sphere_medium,green_transparent)
+# setobject!(vis["robot"]["quad"],robot_obj,black_)
+
+# Animate quadrotor
+# for i = 1:N
+#     settransform!(vis["robot_uncon"], compose(Translation(results_uncon.X[i][1], results_uncon.X[i][2], results_uncon.X[i][3]),LinearMap(Quat(results_uncon.X[i][4:7]...))))
+#     sleep(solver_uncon.dt)
+# end
+
+for i = 1:N
+    settransform!(vis["satellite"], compose(Translation(LinearMap(Quat(X_sim[i][4:7]...))))
+    sleep(solver_con.dt)
 end
+
+# Ghose quadrotor scene
+traj_idx = [1;12;20;30;40;50;N]
+n_robots = length(traj_idx)
+for i = 1:n_robots
+    robot = vis["robot_$i"]
+    setobject!(vis["robot_$i"]["quad"],robot_obj,black_semi)
+    settransform!(vis["robot_$i"], compose(Translation(results_con.X[traj_idx[i]][1], results_con.X[traj_idx[i]][2], results_con.X[traj_idx[i]][3]),LinearMap(quat2rot(results_con.X[traj_idx[i]][4:7]))))
+end
+
+# Animation
+# (N-1)/tf
+# anim = MeshCat.Animation(20)
+# for i = 1:N
+#     MeshCat.atframe(anim,vis,i) do frame
+#         settransform!(frame["robot"], compose(Translation(results_con.X[i][1:3]...),LinearMap(Quat(results_con.X[i][4:7]...))))
+#     end
+# end
+# MeshCat.setanimation!(vis,anim)

@@ -25,9 +25,8 @@ q_dot=0.5*qmult(q,[0; omega])
 
 #magnetic field
 # B_N=[3*pos[1]*pos[3]*(B0/norm(pos[:])^5);3*pos[2]*pos[3]*(B0/norm(pos[:])^5);(3*pos[3]^2-norm(pos[:])^2)*(B0/norm(pos[:])^5)];
-temp=qrot(q,B_N_sim[floor(Int,t*N+1),:])
+B_B=qrot(q,B_N_sim[floor(Int,t*N+1),:])
 # temp=qrot(q,B_N[1,:])
-B_B=temp[1:3];
 
 #m_c=zeros(3);
 #for i=1:3
@@ -35,7 +34,7 @@ B_B=temp[1:3];
 #   m_c[i]=-m_max*sign(temp[i]);
 #end
 
-tau_c=cross(u[1:3]/100,B_B); #N-m
+tau_c=cross(u[1:3]*1.e-2,B_B); #N-m
 # tau_c=u[1:3]
 
 #rotation
