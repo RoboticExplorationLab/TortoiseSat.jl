@@ -18,7 +18,7 @@ function kep_ECI(A,t,GM)
         sqrt(1-A_temp[1]).*cosd(E[end]/2));
 
         #find distance to central body
-        r_c=A_temp[2].*(1-A_temp[1].*cos(E[end]));
+        r_c=A_temp[2].*(1-A_temp[1].*cosd(E[end]));
 
         #find orbital position and velocity
         o=r_c*[cos(nu) sin(nu) 0];
