@@ -28,7 +28,7 @@ skew_omega=[0 omega[3] -omega[2];
 # q_dot=q_dot_temp*q;
 q_dot=0.5*qmult(q,[0; omega])
 B_N_noise = rand(3)*(1E-5)^2 #adding 10 percent error
-temp=qrot(q,B_N_sim[floor(Int,t*N+1),:]+B_N_noise)
+temp=qrot(q,B_ECI[floor(Int,t*N+1),:]+B_N_noise)
 # temp=qrot(q,B_N[1,:])
 B_B=temp[1:3];
 

@@ -6,7 +6,7 @@ v = x[4:6] #km/s
 #force balance
 #gravity
 #2-body gravity
-f_grav=GM*mass/(norm(r)^2)*-r/(norm(r)) #km*kg/s^2
+f_grav=GM/(norm(r)^2)*-r/(norm(r)) #km/s^2
 
 # atmospheric drag (assuming that time is invariant)
 # date is new years on 2019
@@ -41,9 +41,9 @@ f_J2=[J2*r[1]/norm(r)^7*(6*r[3]-1.5*(r[1]^2+r[2]^2))
 
 
 #acceleration
-a=(f_grav+f_J2)/mass; #km/s^2
+a=(f_grav+f_J2); #km/s^2
 
-return [v;a];
+return [v;a]
 #print(omega);
 
 

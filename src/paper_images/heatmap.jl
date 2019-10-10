@@ -67,15 +67,15 @@ t_final = zeros(number_sims)
 
 #define limits of slew time calculation
 slew_limits = zeros(1,2)
-slew_limits[1] = .05 #rad/s
-slew_limits[2] = .08727 #error quaternion
+slew_limits[1] = .1 #rad/s
+slew_limits[2] = .1 #error quaternion
 
 #initialize number of knot points and MJD_0
 MJD_0 = 58155.0 #modified julian day
 
 t0 = 0.0 #seconds
 tf = 60*40 #seconds
-cutoff = 30 #condition number cutoff
+cutoff = 100 #condition number cutoff
 
 #extrapolate over magnetic field
 alt = 400 # km
@@ -86,28 +86,24 @@ B_N_complete = zeros(3,1000,1000)
 B_N_complete_norm = zeros(1000,1000)
 lat_complete = range(-pi/2,length = 1000, stop = pi/2)
 long_complete = range(-pi, length = 1000, stop = pi)
-B_norm_dipole = zeros(1000,1000)
 for i = 1:1000
     for j = 1:1000
         B_N_complete[1,i,j] = mag_field(i,j,1)
         B_N_complete[2,i,j] = mag_field(i,j,2)
         B_N_complete[3,i,j] = mag_field(i,j,3)
         B_N_complete_norm[i,j] = norm(B_N_complete[:,i,j])
-        B_norm_dipole[i,j] = 3.12E-5*(R_E/(R_E+alt))^3*sqrt(1+3*sin(lat_complete[i])^2)
     end
 end
-using Plots.PlotMeasures
-plt = plot(long_complete,lat_complete,B_norm_dipole*1E9, left_margin = 20px)
 plt = plot(long_complete,lat_complete,B_N_complete_norm*1E9)
 title!("Normalized Magnetic Field Strength (nT)")
 xlabel!("Longitude (rad)")
 ylabel!("Latitude (rad)")
-Plots.savefig("/Users/agatherer/Desktop/Academic-Papers/Manchester/Data/mag_field_dipole.png")
+Plots.savefig("/Users/agatherer/Desktop/Academic-Papers/Manchester/Data/mag_field_complete.png")
 
 #trajectory optimization section
 #initial
 omega_int=[0;0;0]
-q_0=[1;0;0;0]
+q_0=[0.;0;1;0]
 x0=[omega_int;q_0;t0]
 
 #final
@@ -115,13 +111,13 @@ q_final=[sqrt(2)/2;sqrt(2)/2;0;0]
 omega_final=[0.;0;0]
 xf=[omega_final;q_final;1] #km or km/s
 
-for i in 1:number_sims
+for i in retry
     #enter orbital parameters
     alt=400 #altitude in km
     #enter orbital parameters
     A[i,1] = 0 #circular orbits
     A[i,2]= alt+R_E #semi-major axis
-    A[i,3] = 96.6 #inclination in degrees
+    A[i,3] = rand(1)[1]*90 #inclination in degrees
     A[i,4] = rand(1)[1]*360 #assign ascending nodes
     A[i,5] = 0 #argument of periapsis
     A[i,6] = rand(1)[1]*360 #initial true anomoly
@@ -164,7 +160,7 @@ for i in 1:number_sims
     #Bryson's Rule LQR weights
     Q = zeros(n,n)
     Qf = zeros(n,n)
-    ω_max = maximum(abs.(X[1:3,:]))
+    ω_max = maximum(X[1:3,:])
     τ_max = maximum(J * diff(X[1:3,:],dims = 2)/time_step[i])
     m_max = τ_max / 1.e-5 * 1.e2
     α = 1.e-1
@@ -173,7 +169,19 @@ for i in 1:number_sims
     β = 1.e3
     Q[4:7,4:7] = Array(α*β*Diagonal(I,4))
     Qf[4:7,4:7] = Array(α*β*Diagonal(I,4))*10
-    R = Array((1/m_max^2)*Diagonal(I,m))
+    R = Array((1/m_max^2)*.1*Diagonal(I,m))
+
+    # #LQR weights
+    # Q=zeros(n,n)
+    # Qf=zeros(n,n)
+    # α = 1.e1
+    # Q[1:3,1:3] = Array((α)*Diagonal(I,3))
+    # Qf[1:3,1:3] = Array((α)*Diagonal(I,3))*100
+    # β = 1.e1
+    # Q[4:7,4:7] = Array(β*Diagonal(I,4))
+    # Qf[4:7,4:7] = Array(β*Diagonal(I,4))*100
+    #
+    # R = Array((7.5e-4*t_final[i])*Diagonal(I,m))
 
     #bounds
     u_bnd=[19;19;19]
@@ -185,9 +193,9 @@ for i in 1:number_sims
     obj = LQRObjective(Q, R, Qf, t_final[i], x0, xf)
     obj_con=TrajectoryOptimization.ConstrainedObjective(obj,x_min=-x_bnd,x_max=x_bnd,u_min=-u_bnd,u_max=u_bnd)
     solver = TrajectoryOptimization.Solver(model,obj_con,dt = time_step[i])
-    solver.opts.verbose = false
-    solver.opts.iterations_outerloop=5
-    solver.opts.iterations_innerloop=10
+    solver.opts.verbose= false
+    solver.opts.iterations_outerloop=3
+    solver.opts.iterations_innerloop=50
     solver.opts.dJ_counter_limit = 1
     solver.opts.sat_att = true
     U = rand(Float64,m,length(t_total[i]))/1000 #initialize random input and state
@@ -201,10 +209,10 @@ for i in 1:number_sims
     push!(control_inputs,U)
 
     #TVLQR
-    x0_lqr = .38*pi/180
+    x0_lqr = zeros(n)
     x0_lqr[1:3] = x0[1:3]
 
-    q_noise = randn(3,1)*(1*pi/180)^2 #assign noise to initial quaternion
+    q_noise = randn(3,1)*(.0001*pi/180)^2 #assign noise to initial quaternion
     θ_noise = norm(q_noise)
     r_noise = q_noise/θ_noise
     x0_lqr[4:7] = qmult(x0[4:7],[cos(θ_noise/2);r_noise*sin(θ_noise/2)])
@@ -225,7 +233,7 @@ for i in 1:number_sims
     Q_lqr[4:6,4:6] = Array(β*Diagonal(I,3))
     Qf_lqr[4:6,4:6] = Array(β*Diagonal(I,3))*100
 
-    R_lqr = Array((0.5e3)*Diagonal(I,m))
+    R_lqr = Array((7.5e3)*Diagonal(I,m))
 
     X_sim, U_sim, dX, K = attitude_simulation(f!,f_gains!,integration,X,U,dt_lqr,x0_lqr,t0,t_final[i],Q_lqr,R_lqr,Qf_lqr)
 
@@ -261,24 +269,39 @@ for i = 1:number_sims
     end
 end
 
-
 slew_time
 t_final
 fails
-findall(x -> x == 1.,fails)
 retry = findall(x -> x == 1.,fails)
+for i in retry
+    println(i)
+end
 
 # construct data for the heatmap
-plt = scatter(t_final,slew_time, label = "", xaxis = "Cutoff (s)", yaxis = "Slew Time (s)")
-x_marker = 0:2000
-plot!(x_marker,x_marker, label = "Cutoff Line", legend = true)
+z = zeros(40,26)
+for i = 1:number_sims
+    x_segment = convert(Int,ceil(t_final[i]/50))
+    y_segment = convert(Int,ceil(slew_time[i]/50))
+    z[x_segment,y_segment] += 1
+end
+
+xs = [string(i) for i = 0:100:1900]
+ys = [string(i) for i = 0:100:1200]
+z
+heatmap(1:40, 1:26, z')
+xlabel!("Magnetic Cutoff (s)")
+ylabel!("Slew Time (s)")
+
+scatter(t_final,slew_time,legend = false)
+xlabel!("Cutoff (s)")
+ylabel!("Slew Time (s)")
 
 #plot inputs and make sure they don't match
-k = 23
+k = 98
+plot(t_total[k][1:size(control_inputs[k],2)],control_inputs[k]')
 plot(t_total[k][1:size(sim_control_inputs[k],2)],sim_control_inputs[k]')
 
 plot(t_total[k][1:size(sim_states[k],2)],sim_states[k][4:7,:]')
-plot(t_total[k][1:size(sim_states[k],2)],sim_states[k][1:3,:]')
 
 
 #plot B_N
@@ -304,10 +327,10 @@ plot!(states[5,:,2])
 plot!(states[6,:,2])
 plot!(states[7,:,2])
 
-plt = histogram(slew_time, bins = 50, legend = false)
-xlabel!("Slew Time (s)")
-ylabel!("# of tests")
-# savefig(plt,"/Users/agatherer/Desktop/Academic-Papers/Manchester/Data/SSO_histogram.png")
+histogram(slew_time[101:200], bins = 50, legend = false)
+xaxis!("Slew Time (s)")
+yaxis!("# of tests")
+savefig("/Users/agatherer/Desktop/Academic-Papers/Manchester/Data/100_tests.png")
 
 slew_time_mean = 0.0
 a = 0.0

@@ -1,42 +1,49 @@
-function kep_ECI(A,t,GM)
+function kep_ECI(kep_elements,t0,GM)
 #this function converts keplerian orbital elements and a mean anomaly to
 #cartesian coordinates
 
-    A_temp=A;
-    A_temp[6]=rem(A[6]+t*sqrt(GM./A[2].^3)*180/pi,360);
+    #assumes all keplerian coordinates are in degrees
+
+    A_temp=kep_elements
+    A_temp[6]=rem(kep_elements[6]+t0*sqrt(GM./kep_elements[2].^3),360)
 
     #Use Newton Rhapson to find Eccentric Anomaly
-    E=zeros(1,11);
-    E[1]=A_temp[6];
-    for i=1:10
-        E[i+1]=E[i]-(E[i]-A_temp[1].*sind(E[i])-A_temp[6])./
-            (1-A_temp[1].*cosd(E[i]));
+    E=zeros(1,101);
+    E[1]=A_temp[6]/180*pi;
+    for i=1:100
+        E[i+1]=E[i]-(E[i]-A_temp[1].*sin(E[i])-A_temp[6]/180*pi)./
+            (1-A_temp[1].*cos(E[i]));
     end
 
         #find true anomaly
-        nu=2*atand(sqrt(1+A_temp[1]).*sind(E[end]/2),
-        sqrt(1-A_temp[1]).*cosd(E[end]/2));
+        nu=2*atand(sqrt(1+A_temp[1]).*sin(E[end]/2),
+        sqrt(1-A_temp[1]).*cos(E[end]/2))
 
         #find distance to central body
-        r_c=A_temp[2].*(1-A_temp[1].*cosd(E[end]));
+        r_c=A_temp[2].*(1-A_temp[1].*cos(E[end]))
 
         #find orbital position and velocity
-        o=r_c*[cos(nu) sin(nu) 0];
+        o=r_c*[cosd(nu) sind(nu) 0]
         o_dot=sqrt(GM*A_temp[2])/r_c*[-sin(E[end]) sqrt(1-A_temp[1]^2)*cos(E[end]) 0];
 
         #transform into cartesian
-        r=[o[1].*(cosd(A[5]).*cosd(A[4])-sind(A[5]).*cosd(A[3]).*sind(A[4])) -
-    o[2].*(sind(A[5]).*cosd(A[4])-cosd(A[5]).*cosd(A[3]).*sind(A[4]))   #r1
-    o[1].*(cosd(A[5]).*sind(A[4])+sind(A[5]).*cosd(A[3]).*sind(A[4])) +
-    o[2].*(cosd(A[5]).*cosd(A[3].*cosd(A[4])-sind(A[5]).*sind(A[4])))  #r2
-    o[1].*(sind(A[5]).*sind(A[3]))+o[2].*(cosd(A[5]).*sind(A[3]))]';#r3
-        rdot=[
-    o_dot[1].*(cosd(A[5]).*cosd(A[4])-sind(A[5]).*cosd(A[3]).*sind(A[4])) -
-    o_dot[2].*(sind(A[5]).*cosd(A[4])-cosd(A[5]).*cosd(A[3]).*sind(A[4]))  #rdot1
-    o_dot[1].*(cosd(A[5]).*sind(A[4])+sind(A[5]).*cosd(A[3]).*sind(A[4])) +
-    o_dot[2].*(cosd(A[5]).*cosd(A[3].*cosd(A[4])-sind(A[5]).*sind(A[4])))  #rdot2
-    o_dot[1].*(sind(A[5]).*sind(A[3]))+o_dot[2].*(cosd(A[5]).*sind(A[3]))]'; #rdot3
+        r = R_z(-A_temp[4])*R_x(-A_temp[3])*R_z(-A_temp[5])*o'
+        rdot = R_z(-A_temp[4])*R_x(-A_temp[3])*R_z(-A_temp[5])*o_dot'
 
-    output=[r;rdot];
+    output=[r';rdot']
 
+end
+
+function R_z(angle)
+
+    return [cosd(angle) sind(angle) 0;
+            -sind(angle) cosd(angle) 0;
+            0 0 1]
+end
+
+function R_x(angle)
+
+    return [1 0 0;
+            0 cosd(angle) sind(angle);
+            0 -sind(angle) cosd(angle)]
 end
