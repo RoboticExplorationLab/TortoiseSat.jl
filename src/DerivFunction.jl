@@ -38,7 +38,7 @@ tau_c=cross(u[1:3]*1.e-2,B_B); #N-m
 # tau_c=u[1:3]
 
 #rotation
-omega_dot=J_inv*(tau_c-cross(omega,J*omega)); #rad/s^2
+omega_dot=inv(p.J)*(tau_c-cross(omega,p.J*omega)); #rad/s^2
 
 #redo concatination
 dx[1:8] = [omega_dot;q_dot;1/(tf-t0)];

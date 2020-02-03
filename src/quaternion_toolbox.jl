@@ -1,4 +1,17 @@
 #define expansion function for TrajOpt
+
+function normal_expansion(cost::QuadraticCost, x::AbstractVector, u::AbstractVector)
+
+    return cost.Q, cost.R, cost.H, (cost.Q*x+cost.q), cost.R*u+ cost.r
+
+end
+
+function normal_expansion(cost::QuadraticCost, xN::AbstractVector{Float64})
+
+    return cost.Qf, (cost.Qf*xN+cost.qf)
+end
+
+
 function quaternion_expansion(cost::QuadraticCost, x::AbstractVector{Float64}, u::AbstractVector{Float64})
     #renormalize for quaternion
     qk = x
@@ -34,6 +47,12 @@ function quaternion_expansion(cost::QuadraticCost, xN::AbstractVector{Float64})
     perm_Gn[4:6,4:7] = Gn'
 
     return perm_Gn*cost.Qf*perm_Gn', perm_Gn*(cost.Qf*xN+cost.qf)
+end
+
+function normal_error(X1,X2)
+
+    return X1 - X2
+
 end
 
 function quaternion_error(X1,X2)
