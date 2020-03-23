@@ -42,6 +42,14 @@ function input_parameters(type,Kep,MJD)
 		    0 0 0.0001041667] #kgm2
 		BC = mass/2.2/(J[1,1]*J[2,2])
 
+	elseif type == "3U"
+		#satellite parameters (3U)
+		mass = 2.5 #kg
+		J = 00.00125 0 0;
+		    0 0.00125 0;
+		    0 0 0.00125] #kgm2
+		BC = mass/2.2/(J[1,1]*J[2,2])
+
 	else 
 		println("Type not recognized")
 	end

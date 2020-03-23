@@ -10,8 +10,7 @@ using SatelliteToolbox
 using ForwardDiff
 using SparseArrays
 using Interpolations
-using AttitudeController
-using SatelliteToolbox
+# using AttitudeController
 # using IGRF
 # using ApproxFun
 
@@ -27,6 +26,7 @@ include("quaternion_toolbox.jl")
 include("magnetic_toolbox.jl")
 include("input_parameters.jl")
 include("eigen_axis_slew.jl")
+include("attitude_controller.jl")
 
 R_E = 6178 #km
 
@@ -147,9 +147,9 @@ model_d = TrajectoryOptimization.rk3(model)
 
 # #use eigen-axis slew as first guess for state
 ω_guess, q_guess = eigen_axis_slew(x0[1:7],xf[1:7],t)
-plot(ω_guess')
-plot(q_guess')
-X = [ω_guess;q_guess;reshape(t,1,length(t))]
+plot(ω_guess)
+plot(q_guess)
+X = [ω_guess';q_guess';reshape(t,1,length(t))]
 U0 = zeros(3,length(t))
 #U0 = rand(Float64,m,length(t))/1000 #initialize random input
 
