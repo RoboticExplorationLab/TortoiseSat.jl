@@ -16,17 +16,17 @@ using Interpolations
 
 
 #declare functions 
-include("kep_ECI.jl")
-include("NED_cart.jl")
-include("DerivFunction.jl")
-include("OrbitPlotter.jl")
-include("simulator.jl")
-include("gain_simulator.jl")
-include("quaternion_toolbox.jl")
-include("magnetic_toolbox.jl")
-include("input_parameters.jl")
-include("eigen_axis_slew.jl")
-include("attitude_controller.jl")
+include("src/kep_ECI.jl")
+include("src/NED_cart.jl")
+include("src/DerivFunction.jl")
+include("src/OrbitPlotter.jl")
+include("src/simulator.jl")
+include("src/gain_simulator.jl")
+include("src/quaternion_toolbox.jl")
+include("src/magnetic_toolbox.jl")
+include("src/input_parameters.jl")
+include("src/eigen_axis_slew.jl")
+include("src/attitude_controller.jl")
 
 R_E = 6178 #km
 
