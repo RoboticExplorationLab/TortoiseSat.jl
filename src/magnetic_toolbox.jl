@@ -51,7 +51,7 @@ function magnetic_simulation(p,t0,tf,N,mag_field)
     tspan=(t0,tf*2) #go a little over for the ForwardDiff downstream
     prob=DiffEqBase.ODEProblem(OrbitPlotter,u0,tspan,p = p)
     dt = (tf-t0)/N
-    sol=DiffEqBase.solve(prob, dt = dt ,adaptive=false,RK4())
+    sol=DiffEqBase.solve(prob, dt = dt ,adaptive=false,Euler())
     pos=sol[1:3,:]
     vel=sol[4:6,:]
 
@@ -138,3 +138,11 @@ function Rz(theta)
     return [cos(theta) sin(theta) 0 ; -sin(theta) cos(theta) 0;0 0 1]
 
 end
+
+function hat(x)
+    [  0   -x[3]  x[2]
+         x[3]   0   -x[1]
+        -x[2]  x[1]  0];
+end
+
+

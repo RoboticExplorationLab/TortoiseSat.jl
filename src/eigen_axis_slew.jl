@@ -35,6 +35,7 @@ function eigen_axis_slew(x0,xf,t)
 	end
 
 	return ω_guess, q_guess
+end
 
 
 function qmult(q1,q2)
