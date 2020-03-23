@@ -26,6 +26,7 @@ include("gain_simulator.jl")
 include("quaternion_toolbox.jl")
 include("magnetic_toolbox.jl")
 include("input_parameters.jl")
+include("eigen_axis_slew.jl")
 
 R_E = 6178 #km
 
